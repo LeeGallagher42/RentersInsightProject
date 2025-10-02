@@ -266,33 +266,48 @@ with col4:
 st.divider()
 
 # ------------------------------
-# Map (with price-based colors)
+# Map (robust + token-free)
 # ------------------------------
+import pydeck as pdk
+
+# Color by price (same logic as before)
 if "Price (€)" in f.columns:
     def price_to_color(price):
-        if price <= 1499: return [255, 255, 0]   # yellow
-        if price <= 2000: return [0, 255, 0]     # green
-        if price <= 2500: return [255, 0, 0]     # red
-        if price <= 3000: return [0, 0, 255]     # blue
-        if price <= 4000: return [128, 0, 128]   # purple
-        return [0, 0, 0]                         # black
+        if price <= 1499: return [255, 255, 0]
+        if price <= 2000: return [0, 255, 0]
+        if price <= 2500: return [255, 0, 0]
+        if price <= 3000: return [0, 0, 255]
+        if price <= 4000: return [128, 0, 128]
+        return [0, 0, 0]
     f["color"] = f["Price (€)"].apply(price_to_color)
 
-if {"lat","lon"}.issubset(f.columns) and len(f):
-    lat_center = float(f["lat"].mean())
-    lon_center = float(f["lon"].mean())
+# Coerce & validate coords
+g = f.copy()
+for col in ["lat", "lon"]:
+    if col in g.columns:
+        g[col] = pd.to_numeric(g[col], errors="coerce")
+g = g.dropna(subset=["lat","lon"])
+g = g[g["lat"].between(-90, 90) & g["lon"].between(-180, 180)]
+
+if len(g) == 0:
+    st.info("No mappable rows after filters. Showing Dublin as a placeholder.")
+    view = pdk.ViewState(latitude=53.3498, longitude=-6.2603, zoom=10.5)
+    st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view))
+else:
+    view = pdk.ViewState(latitude=float(g["lat"].mean()),
+                         longitude=float(g["lon"].mean()),
+                         zoom=10.5)
 
     layer = pdk.Layer(
         "ScatterplotLayer",
-        data=f,
-        get_position='[lon, lat]',
+        data=g,
+        get_position='[lon, lat]',     # NOTE: lon first, then lat
         get_radius=50,
-        get_fill_color='color',
+        get_fill_color='color' if "color" in g.columns else [0, 122, 255],
         pickable=True,
         auto_highlight=True,
     )
 
-    # Richer tooltip
     tooltip = {
         "html": """
             <div style='font-size:12px'>
@@ -306,13 +321,13 @@ if {"lat","lon"}.issubset(f.columns) and len(f):
     }
 
     st.pydeck_chart(pdk.Deck(
-        map_style="mapbox://styles/mapbox/light-v9",
-        initial_view_state=pdk.ViewState(latitude=lat_center, longitude=lon_center, zoom=10.5),
+        map_style=None,                # <— important: no Mapbox token needed
+        initial_view_state=view,
         layers=[layer],
         tooltip=tooltip
     ))
 
-    # Top-right legend overlay
+    # Legend (unchanged)
     st.markdown(
         """
         <div style='display:flex; justify-content:flex-end; margin-top:-10px;'>
@@ -329,8 +344,7 @@ if {"lat","lon"}.issubset(f.columns) and len(f):
         """,
         unsafe_allow_html=True,
     )
-else:
-    st.info("Map will appear once data includes `lat` and `lon`.")
+
 
 st.divider()
 
@@ -469,4 +483,4 @@ with st.expander("Debug & Schema"):
     if "URL" in f.columns and len(f):
         st.write("Example URL:", f["URL"].iloc[0])
 
-st.caption("Built fast with ❤️ — MVP. Add scoring, SHAP, and model predictions later.")
+st.caption("MVP. Add scoring, SHAP, and model predictions later.")
