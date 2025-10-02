@@ -1,2 +1,3 @@
 # RentersInsightProject
 End-to-end data science project: web-scraped ~1,000+ Dublin rental listings from Daft.ie, cleaned &amp; enriched with geospatial features (amenities, BER energy cost, distance to city centre), and built an interactive Streamlit dashboard for property comparison.
+⚡️ Future-ready: This dashboard is built for a static dataset, but the scraping & feature engineering pipeline can be automated to run nightly (e.g. via GitHub Actions) to keep data fresh and photos updated. For this portfolio build, I focused on demonstrating end-to-end data engineering, enrichment, and interactive UI rather than full production automation.
