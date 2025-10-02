@@ -27,26 +27,50 @@ PRIMARY_COLS = [
     "energy_estimate_available","URL"
 ]
 
+# ------------------------------
+# Data picker (new cloud-friendly)
+# ------------------------------
+with st.sidebar:
+    st.header("Data")
+    st.caption("Pick one option below")
+    data_mode = st.radio(
+        "Source",
+        ["Use bundled sample.csv", "Paste CSV URL", "Upload CSV"],
+        index=0
+    )
+
+    csv_url = None
+    uploaded = None
+    if data_mode == "Paste CSV URL":
+        csv_url = st.text_input("CSV URL (raw CSV)", placeholder="https://...")
+    elif data_mode == "Upload CSV":
+        uploaded = st.file_uploader("Upload CSV", type=["csv"])
+
 @st.cache_data(show_spinner=False)
-def load_data(file) -> pd.DataFrame:
-    if isinstance(file, (str, os.PathLike)) and os.path.exists(file):
-        df = pd.read_csv(file)
-    elif hasattr(file, "read"):  # UploadedFile
-        df = pd.read_csv(file)
+def load_data_from_source(mode, url, uploaded_file):
+    import io
+    if mode == "Use bundled sample.csv":
+        df = pd.read_csv("sample.csv")
+    elif mode == "Paste CSV URL":
+        if not url:
+            st.stop()
+        df = pd.read_csv(url)
+    elif mode == "Upload CSV":
+        if not uploaded_file:
+            st.stop()
+        df = pd.read_csv(uploaded_file)
     else:
         st.stop()
 
-    # Coerce numerics
+    # Coerce numerics etc. (your existing logic)
     for c in NUMERIC_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # BER ordering
     if "BER Rating" in df.columns:
         df["BER Rating"] = df["BER Rating"].fillna("Unknown").astype(str)
         df["BER Rating"] = pd.Categorical(df["BER Rating"], categories=BER_ORDER, ordered=True)
 
-    # Duplicates for safe tooltip keys
     if "Property Type" in df.columns:
         df["Property_Type"] = df["Property Type"]
     if "Price (€)" in df.columns:
@@ -56,27 +80,12 @@ def load_data(file) -> pd.DataFrame:
 
     return df
 
-
-# ------------------------------
-# UI shell
-# ------------------------------
-st.set_page_config(page_title="Daft.ie Rental Explorer — MVP", layout="wide")
-st.title("🏠 Daft.ie Rental Explorer — MVP")
-st.caption("Single-file Streamlit MVP to filter, map, and compare Dublin rentals.")
-
-# Sidebar: Data picker
-with st.sidebar:
-    st.header("Data")
-    default_path = st.text_input("Local CSV path (optional)", value="daft_clean.csv")
-    uploaded = st.file_uploader("…or upload CSV", type=["csv"])
-    source = uploaded if uploaded else default_path
-
-# Load data before building filter widgets
 try:
-    df = load_data(source)
+    df = load_data_from_source(data_mode, csv_url, uploaded)
 except Exception as e:
-    st.error(f"Couldn't load data. Check path or upload a CSV.\nDetails: {e}")
+    st.error(f"Couldn't load data. Check your source.\nDetails: {e}")
     st.stop()
+
 
 required_core = {"Address","Price (€)","lat","lon"}
 missing = [c for c in required_core if c not in df.columns]
