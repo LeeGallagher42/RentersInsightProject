@@ -27,50 +27,30 @@ PRIMARY_COLS = [
     "energy_estimate_available","URL"
 ]
 
-# ------------------------------
-# Data picker (new cloud-friendly)
-# ------------------------------
-with st.sidebar:
-    st.header("Data")
-    st.caption("Pick one option below")
-    data_mode = st.radio(
-        "Source",
-        ["Use bundled sample.csv", "Paste CSV URL", "Upload CSV"],
-        index=0
-    )
 
-    csv_url = None
-    uploaded = None
-    if data_mode == "Paste CSV URL":
-        csv_url = st.text_input("CSV URL (raw CSV)", placeholder="https://...")
-    elif data_mode == "Upload CSV":
-        uploaded = st.file_uploader("Upload CSV", type=["csv"])
+
+FULL_FILE = "cleaned_data_enriched.csv"  
 
 @st.cache_data(show_spinner=False)
-def load_data_from_source(mode, url, uploaded_file):
-    import io
-    if mode == "Use bundled sample.csv":
-        df = pd.read_csv("sample.csv")
-    elif mode == "Paste CSV URL":
-        if not url:
-            st.stop()
-        df = pd.read_csv(url)
-    elif mode == "Upload CSV":
-        if not uploaded_file:
-            st.stop()
-        df = pd.read_csv(uploaded_file)
-    else:
-        st.stop()
+def load_full_dataset(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
 
-    # Coerce numerics etc. (your existing logic)
+    # keep only rows with valid coordinates
+    if {"lat","lon"}.issubset(df.columns):
+        df = df.dropna(subset=["lat","lon"]).copy()
+        df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
+        df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
+        df = df[df["lat"].between(-90, 90) & df["lon"].between(-180, 180)]
+
+    # numeric coercions used elsewhere
     for c in NUMERIC_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
+    # tidy helpers
     if "BER Rating" in df.columns:
         df["BER Rating"] = df["BER Rating"].fillna("Unknown").astype(str)
         df["BER Rating"] = pd.Categorical(df["BER Rating"], categories=BER_ORDER, ordered=True)
-
     if "Property Type" in df.columns:
         df["Property_Type"] = df["Property Type"]
     if "Price (€)" in df.columns:
@@ -81,9 +61,9 @@ def load_data_from_source(mode, url, uploaded_file):
     return df
 
 try:
-    df = load_data_from_source(data_mode, csv_url, uploaded)
+    df = load_full_dataset(FULL_FILE)
 except Exception as e:
-    st.error(f"Couldn't load data. Check your source.\nDetails: {e}")
+    st.error(f"Couldn't load {FULL_FILE}. Make sure the file exists in the repo root.\nDetails: {e}")
     st.stop()
 
 
