@@ -269,15 +269,19 @@ for col in ["lat", "lon"]:
 g = g.dropna(subset=["lat","lon"])
 g = g[g["lat"].between(-90, 90) & g["lon"].between(-180, 180)]
 
+# Always start centered on Dublin; same view even if data is empty
+DUBLIN_LAT, DUBLIN_LON, DUBLIN_ZOOM = 53.3498, -6.2603, 11.0
+
 if len(g) == 0:
-    st.info("No mappable rows after filters. Showing Dublin as a placeholder.")
-    view = pdk.ViewState(latitude=53.3498, longitude=-6.2603, zoom=10.5)
+    st.info("No mappable rows after filters. Showing Dublin.")
+    view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view))
 else:
-    view = pdk.ViewState(latitude=float(g["lat"].mean()),
-                         longitude=float(g["lon"].mean()),
-                         zoom=10.5)
+    # You can still center on Dublin (consistent UX),
+    # or center on data. We'll keep Dublin for predictability:
+    view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
 
+    
     layer = pdk.Layer(
         "ScatterplotLayer",
         data=g,
