@@ -554,4 +554,4 @@ with st.expander("Debug & Schema"):
     if "Price (€)" in df.columns:
         st.write("Price min/max:", int(df["Price (€)"].min()), int(df["Price (€)"].max()))
 
-st.caption("MVP. Add scoring, SHAP, and model predictions later. 🚀")
+st.caption("MVP. Add scoring, SHAP, and model predictions later.")
