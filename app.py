@@ -140,22 +140,27 @@ with st.sidebar:
         # --- Bathrooms (≈ nearest integer): fixed 1..9, show all by default ---
         sel_baths = st.multiselect("Bathrooms", BATH_OPTIONS, default=BATH_OPTIONS)
 
-    with st.expander("Type & energy", expanded=False):
-        if "Property Type" in df.columns:
-            types = sorted(df["Property Type"].dropna().unique())
-            sel_types = st.multiselect("Property Type", types, default=types)
-        else:
-            sel_types = None
+with st.expander("Type & energy", expanded=False):
+    # Property type
+    if "Property Type" in df.columns:
+        types = sorted(df["Property Type"].dropna().unique())
+        sel_types = st.multiselect("Property Type", types, default=types)
+    else:
+        sel_types = None
 
-        if "BER Rating" in df.columns:
-            sel_ber = st.multiselect(
-                "BER Rating", BER_ORDER,
-                default=[b for b in BER_ORDER if b in set(df["BER Rating"].astype(str))]
-            )
-        else:
-            sel_ber = None
+    # BER — include *all* ratings by default (including Exempt)
+    if "BER Rating" in df.columns:
+        ber_options = BER_ORDER[:]  # fixed full list, in order
+        st.caption(f"BER Exempt in data: {(df['BER Rating'].astype(str) == 'Exempt').sum()} listings")
+        include_exempt = st.checkbox("Include BER Exempt", value=True)
+        default_ber = ber_options if include_exempt else [b for b in ber_options if b != "Exempt"]
 
-        energy_only = st.checkbox("Energy estimate available", value=False) if "energy_estimate_available" in df.columns else False
+        # Multiselect uses the full ordered list; defaults include/exclude Exempt via the checkbox
+        sel_ber = st.multiselect("BER Rating", options=ber_options, default=default_ber)
+    else:
+        sel_ber = None
+
+    energy_only = st.checkbox("Energy estimate available", value=False) if "energy_estimate_available" in df.columns else False
 
     with st.expander("Location & transit", expanded=False):
         if "distance_to_city_centre_km" in df.columns:
