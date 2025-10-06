@@ -27,9 +27,7 @@ PRIMARY_COLS = [
     "energy_estimate_available","URL"
 ]
 
-
-
-FULL_FILE = "cleaned_data_enriched.csv"  
+FULL_FILE = "cleaned_data_enriched.csv"
 
 @st.cache_data(show_spinner=False)
 def load_full_dataset(path: str) -> pd.DataFrame:
@@ -66,12 +64,17 @@ except Exception as e:
     st.error(f"Couldn't load {FULL_FILE}. Make sure the file exists in the repo root.\nDetails: {e}")
     st.stop()
 
-
 required_core = {"Address","Price (€)","lat","lon"}
 missing = [c for c in required_core if c not in df.columns]
 if missing:
     st.error(f"Your CSV is missing required columns: {missing}")
     st.stop()
+
+# Quick sanity caption for price range in data
+if "Price (€)" in df.columns:
+    pmin_actual = int(pd.to_numeric(df["Price (€)"], errors="coerce").min())
+    pmax_actual = int(pd.to_numeric(df["Price (€)"], errors="coerce").max())
+    st.caption(f"Price range in data: €{pmin_actual:,} – €{pmax_actual:,}")
 
 # ------------------------------
 # Sidebar: Filters (collapsible groups)
@@ -96,19 +99,29 @@ with st.sidebar:
     quick_pick = st.multiselect("Quick-pick area", areas, default=[])
 
     with st.expander("Price & size", expanded=True):
+        # Price slider
         pmin = int(np.nanmin(df["Price (€)"]))
         pmax = int(np.nanmax(df["Price (€)"]))
         price_range = st.slider("Price (€)", min_value=pmin, max_value=pmax, value=(pmin, pmax), step=50)
 
+        # --- Bedrooms (ensure numeric & show all distinct ints) ---
         if "Bedrooms_int" in df.columns:
+            df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce")
             beds_vals = sorted([int(x) for x in df["Bedrooms_int"].dropna().unique()])
             sel_beds = st.multiselect("Bedrooms", beds_vals, default=beds_vals)
         else:
             sel_beds = None
 
+        # --- Bathrooms (keep decimals like 1.5, no int-cast) ---
         if "Bathrooms" in df.columns:
-            bath_vals = sorted([int(x) for x in df["Bathrooms"].dropna().unique()])
-            sel_baths = st.multiselect("Bathrooms", bath_vals, default=bath_vals)
+            df["Bathrooms"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
+            bath_vals = sorted(df["Bathrooms"].dropna().round(1).unique().tolist())
+            sel_baths = st.multiselect(
+                "Bathrooms",
+                bath_vals,
+                default=bath_vals,
+                format_func=lambda x: f"{x:g}"  # pretty print 1.0 as 1
+            )
         else:
             sel_baths = None
 
@@ -165,32 +178,49 @@ with st.sidebar:
 """)
 
 # ------------------------------
-# Apply filters
+# Apply filters (with debug counts)
 # ------------------------------
 f = df.copy()
+debug_counts = {"start": len(f)}
 
 # Price
 f = f[(f["Price (€)"] >= price_range[0]) & (f["Price (€)"] <= price_range[1])]
+debug_counts["price"] = len(f)
 
 # Beds / baths / type / BER
 if sel_beds is not None and "Bedrooms_int" in f.columns:
     f = f[f["Bedrooms_int"].isin(sel_beds)]
+debug_counts["beds"] = len(f)
+
 if sel_baths is not None and "Bathrooms" in f.columns:
+    f["Bathrooms"] = pd.to_numeric(f["Bathrooms"], errors="coerce").round(1)
     f = f[f["Bathrooms"].isin(sel_baths)]
+debug_counts["baths"] = len(f)
+
 if sel_types is not None and "Property Type" in f.columns:
     f = f[f["Property Type"].isin(sel_types)]
+debug_counts["type"] = len(f)
+
 if sel_ber is not None and "BER Rating" in f.columns:
     f = f[f["BER Rating"].astype(str).isin(sel_ber)]
+debug_counts["ber"] = len(f)
 
 # Centre / transit / energy
 if dist_centre is not None and "distance_to_city_centre_km" in f.columns:
     f = f[f["distance_to_city_centre_km"] <= dist_centre]
+debug_counts["dist_centre"] = len(f)
+
 if within_500m and "within_500m_transit" in f.columns:
     f = f[f["within_500m_transit"] == True]
+debug_counts["within_500m"] = len(f)
+
 if max_transit is not None and "min_transit_km" in f.columns:
     f = f[f["min_transit_km"] <= max_transit]
+debug_counts["transit"] = len(f)
+
 if energy_only and "energy_estimate_available" in f.columns:
     f = f[f["energy_estimate_available"] == True]
+debug_counts["energy_only"] = len(f)
 
 # Area / Eircode text search
 if search_q and search_q.strip():
@@ -215,14 +245,14 @@ if search_q and search_q.strip():
     if "Eircode" in f.columns:
         m2 = f["Eircode"].apply(_match)
         mask = m2 if mask is None else (mask | m2)
-
     if mask is not None:
         f = f[mask]
-
+debug_counts["search"] = len(f)
 
 # Quick-pick area
 if quick_pick and "Address" in f.columns:
     f = f[f["Address"].astype(str).str.strip().str.split(",").str[-1].str.strip().isin(quick_pick)]
+debug_counts["quick_pick"] = len(f)
 
 # ------------------------------
 # KPIs
@@ -248,8 +278,6 @@ st.divider()
 # ------------------------------
 # Map (robust + token-free)
 # ------------------------------
-import pydeck as pdk
-
 # Color by price (same logic as before)
 if "Price (€)" in f.columns:
     def price_to_color(price):
@@ -277,11 +305,8 @@ if len(g) == 0:
     view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view))
 else:
-    # You can still center on Dublin (consistent UX),
-    # or center on data. We'll keep Dublin for predictability:
     view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
 
-    
     layer = pdk.Layer(
         "ScatterplotLayer",
         data=g,
@@ -305,13 +330,13 @@ else:
     }
 
     st.pydeck_chart(pdk.Deck(
-        map_style=None,                # <— important: no Mapbox token needed
+        map_style=None,                # <— no Mapbox token needed
         initial_view_state=view,
         layers=[layer],
         tooltip=tooltip
     ))
 
-    # Legend (unchanged)
+    # Legend
     st.markdown(
         """
         <div style='display:flex; justify-content:flex-end; margin-top:-10px;'>
@@ -328,7 +353,6 @@ else:
         """,
         unsafe_allow_html=True,
     )
-
 
 st.divider()
 
@@ -459,11 +483,20 @@ if sel_key:
         st.caption("Selection not in current filter results.")
 
 # ------------------------------
-# Footer
+# Footer / Debug
 # ------------------------------
 with st.expander("Debug & Schema"):
     st.write("Columns present:", list(df.columns))
     st.write("Rows (original → filtered):", len(df), "→", len(f))
+    # Show where rows were removed by each filter step
+    st.write("Filter step counts:", debug_counts)
+    # Quick uniques to debug widgets
+    if "Bathrooms" in df.columns:
+        st.write("Bathrooms unique (rounded 1dp):", sorted(df['Bathrooms'].dropna().round(1).unique().tolist()))
+    if "Bedrooms_int" in df.columns:
+        st.write("Bedrooms unique:", sorted([int(x) for x in df['Bedrooms_int'].dropna().unique()]))
+    if "Price (€)" in df.columns:
+        st.write("Price min/max:", int(df["Price (€)"].min()), int(df["Price (€)"].max()))
     if "URL" in f.columns and len(f):
         st.write("Example URL:", f["URL"].iloc[0])
 
