@@ -237,7 +237,8 @@ with st.sidebar:
         else:
             max_transit = None
 
-    if st.button("Reset filters"):
+    # ---- Reset button ----
+if st.button("Reset filters"):
     # remove filter keys so the init block will rebuild defaults on rerun
     for k in [
         "search_q", "match_mode", "quick_pick",
@@ -249,6 +250,7 @@ with st.sidebar:
         st.session_state.pop(k, None)
     st.session_state.pop("filters_init", None)  # force init on next run
     st.rerun()
+
 
     st.markdown("**Price bands (map colors)**")
     st.markdown("""
