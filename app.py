@@ -30,6 +30,8 @@ PRIMARY_COLS = [
 ]
 
 FULL_FILE = "cleaned_data_enriched.csv"  # ensure this file is in repo root
+BED_OPTIONS  = list(range(1,10))         # 1..9 fixed choices
+BATH_OPTIONS = list(range(1,10))         # 1..9 fixed choices
 
 @st.cache_data(show_spinner=False)
 def load_full_dataset(path: str) -> pd.DataFrame:
@@ -57,6 +59,15 @@ def load_full_dataset(path: str) -> pd.DataFrame:
         df["price_fmt"] = df["Price (€)"].map(lambda x: f"{int(x):,}" if pd.notna(x) else "-")
     if "distance_to_city_centre_km" in df.columns:
         df["dist_centre"] = df["distance_to_city_centre_km"].round(2)
+
+    # create a rounded Bathrooms integer for filtering (handles 1.5 => 2, etc.)
+    if "Bathrooms" in df.columns:
+        df["Bathrooms_num"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
+        df["Bathrooms_int_approx"] = df["Bathrooms_num"].round().astype("Int64")
+
+    # ensure Bedrooms_int is numeric if present
+    if "Bedrooms_int" in df.columns:
+        df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce").astype("Int64")
 
     return df
 
@@ -92,7 +103,6 @@ if "Price (€)" in df.columns:
     pmax_actual = int(pd.to_numeric(df["Price (€)"], errors="coerce").max())
     st.caption(f"Data price range detected: €{pmin_actual:,} – €{pmax_actual:,}")
 
-# Manual cache clear
 if st.button("🔄 Clear cache and reload"):
     st.cache_data.clear()
     st.rerun()
@@ -124,26 +134,11 @@ with st.sidebar:
         pmax = int(np.nanmax(df["Price (€)"]))
         price_range = st.slider("Price (€)", min_value=pmin, max_value=pmax, value=(pmin, pmax), step=50)
 
-        # --- Bedrooms ---
-        if "Bedrooms_int" in df.columns:
-            df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce")
-            beds_vals = sorted([int(x) for x in df["Bedrooms_int"].dropna().unique()])
-            sel_beds = st.multiselect("Bedrooms", beds_vals, default=beds_vals)
-        else:
-            sel_beds = None
+        # --- Bedrooms: fixed 1..9, show all by default ---
+        sel_beds = st.multiselect("Bedrooms", BED_OPTIONS, default=BED_OPTIONS)
 
-        # --- Bathrooms (support decimals like 1.5) ---
-        if "Bathrooms" in df.columns:
-            df["Bathrooms"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
-            bath_vals = sorted(df["Bathrooms"].dropna().round(1).unique().tolist())
-            sel_baths = st.multiselect(
-                "Bathrooms",
-                bath_vals,
-                default=bath_vals,
-                format_func=lambda x: f"{x:g}"  # 1.0 -> "1"
-            )
-        else:
-            sel_baths = None
+        # --- Bathrooms (≈ nearest integer): fixed 1..9, show all by default ---
+        sel_baths = st.multiselect("Bathrooms", BATH_OPTIONS, default=BATH_OPTIONS)
 
     with st.expander("Type & energy", expanded=False):
         if "Property Type" in df.columns:
@@ -207,38 +202,48 @@ debug_counts = {"start": len(f)}
 f = f[(f["Price (€)"] >= price_range[0]) & (f["Price (€)"] <= price_range[1])]
 debug_counts["price"] = len(f)
 
-# Beds / baths / type / BER
-if sel_beds is not None and "Bedrooms_int" in f.columns:
-    f = f[f["Bedrooms_int"].isin(sel_beds)]
+# Bedrooms (filter using Bedrooms_int if present; otherwise derive best-effort)
+if "Bedrooms_int" in f.columns and f["Bedrooms_int"].notna().any():
+    f = f[f["Bedrooms_int"].astype("Int64").isin(sel_beds)]
+else:
+    # fallback: try to parse from 'Bedrooms' text if needed
+    if "Bedrooms" in f.columns:
+        parsed = f["Bedrooms"].astype(str).str.extract(r"(\d+)").astype(float)[0].astype("Int64")
+        f = f[parsed.isin(sel_beds)]
 debug_counts["beds"] = len(f)
 
-if sel_baths is not None and "Bathrooms" in f.columns:
-    f["Bathrooms"] = pd.to_numeric(f["Bathrooms"], errors="coerce").round(1)
-    f = f[f["Bathrooms"].isin(sel_baths)]
+# Bathrooms (use rounded integer approx)
+if "Bathrooms_int_approx" in f.columns:
+    f = f[f["Bathrooms_int_approx"].isin(sel_baths)]
+elif "Bathrooms" in f.columns:
+    f["Bathrooms_num"] = pd.to_numeric(f["Bathrooms"], errors="coerce")
+    f["Bathrooms_int_approx"] = f["Bathrooms_num"].round().astype("Int64")
+    f = f[f["Bathrooms_int_approx"].isin(sel_baths)]
 debug_counts["baths"] = len(f)
 
-if sel_types is not None and "Property Type" in f.columns:
+# Type / BER
+if "Property Type" in f.columns and 'sel_types' in locals() and sel_types is not None:
     f = f[f["Property Type"].isin(sel_types)]
 debug_counts["type"] = len(f)
 
-if sel_ber is not None and "BER Rating" in f.columns:
+if "BER Rating" in f.columns and 'sel_ber' in locals() and sel_ber is not None:
     f = f[f["BER Rating"].astype(str).isin(sel_ber)]
 debug_counts["ber"] = len(f)
 
 # Centre / transit / energy
-if dist_centre is not None and "distance_to_city_centre_km" in f.columns:
+if "distance_to_city_centre_km" in f.columns and 'dist_centre' in locals() and dist_centre is not None:
     f = f[f["distance_to_city_centre_km"] <= dist_centre]
 debug_counts["dist_centre"] = len(f)
 
-if within_500m and "within_500m_transit" in f.columns:
+if "within_500m_transit" in f.columns and 'within_500m' in locals() and within_500m:
     f = f[f["within_500m_transit"] == True]
 debug_counts["within_500m"] = len(f)
 
-if max_transit is not None and "min_transit_km" in f.columns:
+if "min_transit_km" in f.columns and 'max_transit' in locals() and max_transit is not None:
     f = f[f["min_transit_km"] <= max_transit]
 debug_counts["transit"] = len(f)
 
-if energy_only and "energy_estimate_available" in f.columns:
+if "energy_estimate_available" in f.columns and 'energy_only' in locals() and energy_only:
     f = f[f["energy_estimate_available"] == True]
 debug_counts["energy_only"] = len(f)
 
@@ -248,16 +253,12 @@ if search_q and search_q.strip():
 
     def _normalise(text):
         text = text.lower() if isinstance(text, str) else ""
-        # Simple Dublin postcode normalisation: d05 -> dublin 5
-        text = text.replace("dublin ", "d")
+        text = text.replace("dublin ", "d")  # dublin 5 ~ d5
         return text
 
     def _match(text: str) -> bool:
         t = _normalise(text)
-        return any(
-            term in t or t.replace("d", "dublin ") in term
-            for term in terms
-        )
+        return any(term in t or t.replace("d", "dublin ") in term for term in terms)
 
     mask = None
     if "Address" in f.columns:
@@ -296,9 +297,8 @@ with col4:
 st.divider()
 
 # ------------------------------
-# Map (robust + token-free)
+# Map (token-free, fixed Dublin view)
 # ------------------------------
-# Color by price
 if "Price (€)" in f.columns:
     def price_to_color(price):
         if price <= 1499: return [255, 255, 0]
@@ -309,7 +309,6 @@ if "Price (€)" in f.columns:
         return [0, 0, 0]
     f["color"] = f["Price (€)"].apply(price_to_color)
 
-# Coerce & validate coords
 g = f.copy()
 for col in ["lat", "lon"]:
     if col in g.columns:
@@ -317,26 +316,22 @@ for col in ["lat", "lon"]:
 g = g.dropna(subset=["lat","lon"])
 g = g[g["lat"].between(-90, 90) & g["lon"].between(-180, 180)]
 
-# Always start centered on Dublin
 DUBLIN_LAT, DUBLIN_LON, DUBLIN_ZOOM = 53.3498, -6.2603, 11.0
+view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
 
 if len(g) == 0:
     st.info("No mappable rows after filters. Showing Dublin.")
-    view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view))
 else:
-    view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
-
     layer = pdk.Layer(
         "ScatterplotLayer",
         data=g,
-        get_position='[lon, lat]',     # NOTE: lon first, then lat
+        get_position='[lon, lat]',
         get_radius=50,
         get_fill_color='color' if "color" in g.columns else [0, 122, 255],
         pickable=True,
         auto_highlight=True,
     )
-
     tooltip = {
         "html": """
             <div style='font-size:12px'>
@@ -348,15 +343,8 @@ else:
         """,
         "style": {"backgroundColor": "#111", "color": "#fff"}
     }
+    st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view, layers=[layer], tooltip=tooltip))
 
-    st.pydeck_chart(pdk.Deck(
-        map_style=None,                # no Mapbox token needed
-        initial_view_state=view,
-        layers=[layer],
-        tooltip=tooltip
-    ))
-
-    # Legend
     st.markdown(
         """
         <div style='display:flex; justify-content:flex-end; margin-top:-10px;'>
@@ -411,7 +399,6 @@ show_cols = [c for c in PRIMARY_COLS if c in f.columns]
 if len(f):
     st.subheader("Matching listings")
 
-    # Column configs (price formatting + link)
     col_cfg = {}
     if "URL" in show_cols:
         col_cfg["URL"] = st.column_config.LinkColumn(label="Daft Listing", display_text="Open")
@@ -426,12 +413,9 @@ if len(f):
     if "min_transit_km" in show_cols:
         col_cfg["min_transit_km"] = st.column_config.NumberColumn(label="Km to transit", format="%.2f")
 
-    # Stable key for rows
     key_col = "URL" if "URL" in f.columns else "Address"
-
     display = f[show_cols].copy().reset_index(drop=True)
 
-    # Favourites state
     if "favs" not in st.session_state:
         st.session_state["favs"] = set()
 
@@ -447,17 +431,14 @@ if len(f):
         key="main_table"
     )
 
-    # Update favourites
     st.session_state["favs"] = set(edited.loc[edited["Favourite"] == True, key_col].tolist())
 
-    # Connect to details panel via first favourite
     if st.button("Show details for selected (first ⭐)"):
         sel_rows = edited.loc[edited["Favourite"] == True]
         if len(sel_rows):
             st.session_state["selected_key"] = sel_rows.iloc[0][key_col]
             st.rerun()
 
-    # Saved list
     with st.expander("⭐ Saved listings"):
         saved = edited.loc[edited["Favourite"] == True, show_cols + ([key_col] if key_col not in show_cols else [])]
         if len(saved):
@@ -465,14 +446,13 @@ if len(f):
         else:
             st.caption("No favourites yet — tick ⭐ in the table above.")
 
-    # Download
     csv_bytes = f[show_cols].to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download filtered CSV", data=csv_bytes, file_name="filtered_listings.csv", mime="text/csv")
 else:
     st.warning("No listings match your filters. Try widening your criteria.")
 
 # ------------------------------
-# Details panel (populated when a row is chosen)
+# Details panel
 # ------------------------------
 st.markdown("### Quick details")
 st.caption("Tick ⭐ on a row and click the button above to show details here.")
@@ -512,7 +492,7 @@ with st.expander("Debug & Schema"):
     if "Bathrooms" in df.columns:
         st.write("Bathrooms unique (rounded 1dp):", sorted(df['Bathrooms'].dropna().round(1).unique().tolist()))
     if "Bedrooms_int" in df.columns:
-        st.write("Bedrooms unique:", sorted([int(x) for x in df['Bedrooms_int'].dropna().unique()]))
+        st.write("Bedrooms unique (from data):", sorted([int(x) for x in df['Bedrooms_int'].dropna().unique()]))
     if "Price (€)" in df.columns:
         st.write("Price min/max:", int(df["Price (€)"].min()), int(df["Price (€)"].max()))
     if "URL" in f.columns and len(f):
