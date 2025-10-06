@@ -1,4 +1,6 @@
 import os
+import time
+import hashlib
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -27,7 +29,7 @@ PRIMARY_COLS = [
     "energy_estimate_available","URL"
 ]
 
-FULL_FILE = "cleaned_data_enriched.csv"
+FULL_FILE = "cleaned_data_enriched.csv"  # ensure this file is in repo root
 
 @st.cache_data(show_spinner=False)
 def load_full_dataset(path: str) -> pd.DataFrame:
@@ -58,6 +60,16 @@ def load_full_dataset(path: str) -> pd.DataFrame:
 
     return df
 
+def file_digest(path):
+    try:
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:10]
+    except Exception:
+        return "n/a"
+
+# ------------------------------
+# Load data
+# ------------------------------
 try:
     df = load_full_dataset(FULL_FILE)
 except Exception as e:
@@ -70,11 +82,20 @@ if missing:
     st.error(f"Your CSV is missing required columns: {missing}")
     st.stop()
 
-# Quick sanity caption for price range in data
+# Diagnostics (prove what the app is using)
+mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(FULL_FILE))) if os.path.exists(FULL_FILE) else 'n/a'
+st.caption(
+    f"📄 Using file: **{FULL_FILE}** | rows: **{len(df)}** | md5: **{file_digest(FULL_FILE)}** | mtime: **{mtime}**"
+)
 if "Price (€)" in df.columns:
     pmin_actual = int(pd.to_numeric(df["Price (€)"], errors="coerce").min())
     pmax_actual = int(pd.to_numeric(df["Price (€)"], errors="coerce").max())
-    st.caption(f"Price range in data: €{pmin_actual:,} – €{pmax_actual:,}")
+    st.caption(f"Data price range detected: €{pmin_actual:,} – €{pmax_actual:,}")
+
+# Manual cache clear
+if st.button("🔄 Clear cache and reload"):
+    st.cache_data.clear()
+    st.rerun()
 
 # ------------------------------
 # Sidebar: Filters (collapsible groups)
@@ -93,7 +114,6 @@ with st.sidebar:
     # --- Area quick-pick (derived from Address suffix) ---
     areas = []
     if "Address" in df.columns:
-        # naive area extraction: last comma-part of address
         candidates = df["Address"].dropna().astype(str).map(lambda s: s.split(",")[-1].strip())
         areas = sorted(pd.Series(candidates).unique().tolist())
     quick_pick = st.multiselect("Quick-pick area", areas, default=[])
@@ -104,7 +124,7 @@ with st.sidebar:
         pmax = int(np.nanmax(df["Price (€)"]))
         price_range = st.slider("Price (€)", min_value=pmin, max_value=pmax, value=(pmin, pmax), step=50)
 
-        # --- Bedrooms (ensure numeric & show all distinct ints) ---
+        # --- Bedrooms ---
         if "Bedrooms_int" in df.columns:
             df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce")
             beds_vals = sorted([int(x) for x in df["Bedrooms_int"].dropna().unique()])
@@ -112,7 +132,7 @@ with st.sidebar:
         else:
             sel_beds = None
 
-        # --- Bathrooms (keep decimals like 1.5, no int-cast) ---
+        # --- Bathrooms (support decimals like 1.5) ---
         if "Bathrooms" in df.columns:
             df["Bathrooms"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
             bath_vals = sorted(df["Bathrooms"].dropna().round(1).unique().tolist())
@@ -120,7 +140,7 @@ with st.sidebar:
                 "Bathrooms",
                 bath_vals,
                 default=bath_vals,
-                format_func=lambda x: f"{x:g}"  # pretty print 1.0 as 1
+                format_func=lambda x: f"{x:g}"  # 1.0 -> "1"
             )
         else:
             sel_baths = None
@@ -278,7 +298,7 @@ st.divider()
 # ------------------------------
 # Map (robust + token-free)
 # ------------------------------
-# Color by price (same logic as before)
+# Color by price
 if "Price (€)" in f.columns:
     def price_to_color(price):
         if price <= 1499: return [255, 255, 0]
@@ -297,7 +317,7 @@ for col in ["lat", "lon"]:
 g = g.dropna(subset=["lat","lon"])
 g = g[g["lat"].between(-90, 90) & g["lon"].between(-180, 180)]
 
-# Always start centered on Dublin; same view even if data is empty
+# Always start centered on Dublin
 DUBLIN_LAT, DUBLIN_LON, DUBLIN_ZOOM = 53.3498, -6.2603, 11.0
 
 if len(g) == 0:
@@ -330,7 +350,7 @@ else:
     }
 
     st.pydeck_chart(pdk.Deck(
-        map_style=None,                # <— no Mapbox token needed
+        map_style=None,                # no Mapbox token needed
         initial_view_state=view,
         layers=[layer],
         tooltip=tooltip
@@ -488,9 +508,7 @@ if sel_key:
 with st.expander("Debug & Schema"):
     st.write("Columns present:", list(df.columns))
     st.write("Rows (original → filtered):", len(df), "→", len(f))
-    # Show where rows were removed by each filter step
     st.write("Filter step counts:", debug_counts)
-    # Quick uniques to debug widgets
     if "Bathrooms" in df.columns:
         st.write("Bathrooms unique (rounded 1dp):", sorted(df['Bathrooms'].dropna().round(1).unique().tolist()))
     if "Bedrooms_int" in df.columns:
@@ -500,4 +518,4 @@ with st.expander("Debug & Schema"):
     if "URL" in f.columns and len(f):
         st.write("Example URL:", f["URL"].iloc[0])
 
-st.caption("MVP. Add scoring, SHAP, and model predictions later.")
+st.caption("MVP. Add scoring, SHAP, and model predictions later. 🚀")
