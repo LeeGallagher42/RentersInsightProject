@@ -1,6 +1,7 @@
 import os
 import time
 import hashlib
+import re
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -29,9 +30,58 @@ PRIMARY_COLS = [
     "energy_estimate_available","URL"
 ]
 
-FULL_FILE = "cleaned_data_enriched.csv"  # ensure this file is in repo root
-BED_OPTIONS  = list(range(1,10))         # 1..9 fixed choices
-BATH_OPTIONS = list(range(1,10))         # 1..9 fixed choices
+FULL_FILE = "cleaned_data_enriched.csv"   # ensure this file is in repo root
+BED_OPTIONS  = list(range(1,10))          # 1..9 fixed
+BATH_OPTIONS = list(range(1,10))          # 1..9 fixed
+
+def file_digest(path):
+    try:
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:10]
+    except Exception:
+        return "n/a"
+
+def normalise_ber(val: str) -> str:
+    """
+    Map messy BER strings to one of BER_ORDER.
+    Handles 'BER Exempt', spacing, case, typos like 'A 2' -> 'A2', blanks -> 'Unknown'.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return "Unknown"
+    s = str(val).strip()
+    if s == "":
+        return "Unknown"
+
+    s_low = s.lower()
+    # Common 'exempt' variants
+    if "exempt" in s_low:
+        return "Exempt"
+
+    # Remove spaces like "A 2" -> "A2"
+    s_compact = re.sub(r"\s+", "", s.upper())
+
+    # Valid ratings without spaces
+    valid = set(BER_ORDER)
+    if s_compact in valid:
+        return s_compact
+
+    # Some datasets put hyphens or extra chars (e.g., "A-2")
+    s_compact = s_compact.replace("-", "")
+    if s_compact in valid:
+        return s_compact
+
+    # If it starts with a known prefix letter and a digit (A1..G), try to capture
+    m = re.match(r"^([A-G])(\d)$", s_compact)
+    if m:
+        guess = m.group(1) + m.group(2)
+        if guess in valid:
+            return guess
+
+    # Fallbacks
+    if s_low in {"n/a","na","none","unknown","-"}:
+        return "Unknown"
+
+    return "Unknown"
 
 @st.cache_data(show_spinner=False)
 def load_full_dataset(path: str) -> pd.DataFrame:
@@ -49,34 +99,38 @@ def load_full_dataset(path: str) -> pd.DataFrame:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # tidy helpers
-    if "BER Rating" in df.columns:
-        df["BER Rating"] = df["BER Rating"].fillna("Unknown").astype(str)
-        df["BER Rating"] = pd.Categorical(df["BER Rating"], categories=BER_ORDER, ordered=True)
-    if "Property Type" in df.columns:
-        df["Property_Type"] = df["Property Type"]
-    if "Price (€)" in df.columns:
-        df["price_fmt"] = df["Price (€)"].map(lambda x: f"{int(x):,}" if pd.notna(x) else "-")
-    if "distance_to_city_centre_km" in df.columns:
-        df["dist_centre"] = df["distance_to_city_centre_km"].round(2)
+    # Bedrooms ensure numeric (if present)
+    if "Bedrooms_int" in df.columns:
+        df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce").astype("Int64")
 
-    # create a rounded Bathrooms integer for filtering (handles 1.5 => 2, etc.)
+    # Bathrooms numeric + rounded int approx (handles 1.5 -> 2 for filtering if desired)
     if "Bathrooms" in df.columns:
         df["Bathrooms_num"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
         df["Bathrooms_int_approx"] = df["Bathrooms_num"].round().astype("Int64")
 
-    # ensure Bedrooms_int is numeric if present
-    if "Bedrooms_int" in df.columns:
-        df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce").astype("Int64")
+    # Property type helper
+    if "Property Type" in df.columns:
+        df["Property_Type"] = df["Property Type"]
+
+    # Price display
+    if "Price (€)" in df.columns:
+        df["price_fmt"] = df["Price (€)"].map(lambda x: f"{int(x):,}" if pd.notna(x) else "-")
+
+    # Distance helper
+    if "distance_to_city_centre_km" in df.columns:
+        df["dist_centre"] = df["distance_to_city_centre_km"].round(2)
+
+    # ---- BER NORMALISATION (key change) ----
+    # Build normalised column BER_norm and categorical version for consistent filtering
+    if "BER Rating" in df.columns:
+        df["BER_norm"] = df["BER Rating"].apply(normalise_ber)
+    else:
+        df["BER_norm"] = "Unknown"
+    # Make ordered categorical for stable UI ordering
+    cat_order = pd.CategoricalDtype(categories=BER_ORDER, ordered=True)
+    df["BER_norm"] = df["BER_norm"].astype(cat_order)
 
     return df
-
-def file_digest(path):
-    try:
-        with open(path, "rb") as f:
-            return hashlib.md5(f.read()).hexdigest()[:10]
-    except Exception:
-        return "n/a"
 
 # ------------------------------
 # Load data
@@ -134,33 +188,28 @@ with st.sidebar:
         pmax = int(np.nanmax(df["Price (€)"]))
         price_range = st.slider("Price (€)", min_value=pmin, max_value=pmax, value=(pmin, pmax), step=50)
 
-        # --- Bedrooms: fixed 1..9, show all by default ---
+        # Fixed pickers regardless of data
         sel_beds = st.multiselect("Bedrooms", BED_OPTIONS, default=BED_OPTIONS)
+        sel_baths = st.multiselect("Bathrooms (≈ rounded)", BATH_OPTIONS, default=BATH_OPTIONS)
 
-        # --- Bathrooms (≈ nearest integer): fixed 1..9, show all by default ---
-        sel_baths = st.multiselect("Bathrooms", BATH_OPTIONS, default=BATH_OPTIONS)
+    with st.expander("Type & energy", expanded=False):
+        # Property type
+        if "Property Type" in df.columns:
+            types = sorted(df["Property Type"].dropna().unique())
+            sel_types = st.multiselect("Property Type", types, default=types)
+        else:
+            sel_types = None
 
-with st.expander("Type & energy", expanded=False):
-    # Property type
-    if "Property Type" in df.columns:
-        types = sorted(df["Property Type"].dropna().unique())
-        sel_types = st.multiselect("Property Type", types, default=types)
-    else:
-        sel_types = None
-
-    # BER — include *all* ratings by default (including Exempt)
-    if "BER Rating" in df.columns:
-        ber_options = BER_ORDER[:]  # fixed full list, in order
-        st.caption(f"BER Exempt in data: {(df['BER Rating'].astype(str) == 'Exempt').sum()} listings")
+        # BER — include Exempt by default, with toggle
+        ber_options = BER_ORDER[:]  # fixed full list, ordered
+        exempt_count = int((df["BER_norm"].astype(str) == "Exempt").sum())
+        st.caption(f"BER Exempt in data: {exempt_count} listings")
         include_exempt = st.checkbox("Include BER Exempt", value=True)
         default_ber = ber_options if include_exempt else [b for b in ber_options if b != "Exempt"]
 
-        # Multiselect uses the full ordered list; defaults include/exclude Exempt via the checkbox
         sel_ber = st.multiselect("BER Rating", options=ber_options, default=default_ber)
-    else:
-        sel_ber = None
 
-    energy_only = st.checkbox("Energy estimate available", value=False) if "energy_estimate_available" in df.columns else False
+        energy_only = st.checkbox("Energy estimate available", value=False) if "energy_estimate_available" in df.columns else False
 
     with st.expander("Location & transit", expanded=False):
         if "distance_to_city_centre_km" in df.columns:
@@ -207,17 +256,16 @@ debug_counts = {"start": len(f)}
 f = f[(f["Price (€)"] >= price_range[0]) & (f["Price (€)"] <= price_range[1])]
 debug_counts["price"] = len(f)
 
-# Bedrooms (filter using Bedrooms_int if present; otherwise derive best-effort)
+# Bedrooms (use Bedrooms_int if available; fallback parse from text)
 if "Bedrooms_int" in f.columns and f["Bedrooms_int"].notna().any():
     f = f[f["Bedrooms_int"].astype("Int64").isin(sel_beds)]
 else:
-    # fallback: try to parse from 'Bedrooms' text if needed
     if "Bedrooms" in f.columns:
         parsed = f["Bedrooms"].astype(str).str.extract(r"(\d+)").astype(float)[0].astype("Int64")
         f = f[parsed.isin(sel_beds)]
 debug_counts["beds"] = len(f)
 
-# Bathrooms (use rounded integer approx)
+# Bathrooms (rounded integer approx)
 if "Bathrooms_int_approx" in f.columns:
     f = f[f["Bathrooms_int_approx"].isin(sel_baths)]
 elif "Bathrooms" in f.columns:
@@ -226,29 +274,30 @@ elif "Bathrooms" in f.columns:
     f = f[f["Bathrooms_int_approx"].isin(sel_baths)]
 debug_counts["baths"] = len(f)
 
-# Type / BER
-if "Property Type" in f.columns and 'sel_types' in locals() and sel_types is not None:
+# Type
+if sel_types is not None and "Property Type" in f.columns:
     f = f[f["Property Type"].isin(sel_types)]
 debug_counts["type"] = len(f)
 
-if "BER Rating" in f.columns and 'sel_ber' in locals() and sel_ber is not None:
-    f = f[f["BER Rating"].astype(str).isin(sel_ber)]
+# ---- BER filter uses BER_norm (normalized!) ----
+if sel_ber is not None and "BER_norm" in f.columns:
+    f = f[f["BER_norm"].astype(str).isin(sel_ber)]
 debug_counts["ber"] = len(f)
 
 # Centre / transit / energy
-if "distance_to_city_centre_km" in f.columns and 'dist_centre' in locals() and dist_centre is not None:
+if dist_centre is not None and "distance_to_city_centre_km" in f.columns:
     f = f[f["distance_to_city_centre_km"] <= dist_centre]
 debug_counts["dist_centre"] = len(f)
 
-if "within_500m_transit" in f.columns and 'within_500m' in locals() and within_500m:
+if within_500m and "within_500m_transit" in f.columns:
     f = f[f["within_500m_transit"] == True]
 debug_counts["within_500m"] = len(f)
 
-if "min_transit_km" in f.columns and 'max_transit' in locals() and max_transit is not None:
+if max_transit is not None and "min_transit_km" in f.columns:
     f = f[f["min_transit_km"] <= max_transit]
 debug_counts["transit"] = len(f)
 
-if "energy_estimate_available" in f.columns and 'energy_only' in locals() and energy_only:
+if energy_only and "energy_estimate_available" in f.columns:
     f = f[f["energy_estimate_available"] == True]
 debug_counts["energy_only"] = len(f)
 
@@ -342,7 +391,7 @@ else:
             <div style='font-size:12px'>
               <b>{Address}</b><br/>
               €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
-              BER: {BER Rating} • {dist_centre} km to centre<br/>
+              BER: {BER_norm} • {dist_centre} km to centre<br/>
               Transit: {min_transit_km} km
             </div>
         """,
@@ -475,7 +524,7 @@ if sel_key:
         add_line("Price (€)", "Price (€)")
         add_line("Bedrooms", "Bedrooms")
         add_line("Bathrooms", "Bathrooms")
-        add_line("BER", "BER Rating")
+        add_line("BER", "BER_norm")
         add_line("Distance to centre (km)", "distance_to_city_centre_km")
         add_line("Nearest transit (km)", "min_transit_km")
         add_line("Park (km)", "nearest_park_km")
@@ -494,8 +543,12 @@ with st.expander("Debug & Schema"):
     st.write("Columns present:", list(df.columns))
     st.write("Rows (original → filtered):", len(df), "→", len(f))
     st.write("Filter step counts:", debug_counts)
+    # Show BER raw vs normalized to confirm mapping
+    if "BER Rating" in df.columns:
+        st.write("BER raw top values:", df["BER Rating"].astype(str).value_counts().head(10))
+    st.write("BER normalized counts:", df["BER_norm"].astype(str).value_counts().to_dict())
     if "Bathrooms" in df.columns:
-        st.write("Bathrooms unique (rounded 1dp):", sorted(df['Bathrooms'].dropna().round(1).unique().tolist()))
+        st.write("Bathrooms unique (rounded 1dp):", sorted(df['Bathrooms_num'].dropna().round(1).unique().tolist()) if 'Bathrooms_num' in df.columns else [])
     if "Bedrooms_int" in df.columns:
         st.write("Bedrooms unique (from data):", sorted([int(x) for x in df['Bedrooms_int'].dropna().unique()]))
     if "Price (€)" in df.columns:
