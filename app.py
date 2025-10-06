@@ -30,9 +30,9 @@ PRIMARY_COLS = [
     "energy_estimate_available","URL"
 ]
 
-FULL_FILE = "cleaned_data_enriched.csv"   # ensure this file is in repo root
-BED_OPTIONS  = list(range(1,10))          # 1..9 fixed
-BATH_OPTIONS = list(range(1,10))          # 1..9 fixed
+FULL_FILE = "cleaned_data_enriched.csv"
+BED_OPTIONS  = list(range(1,10))   # 1..9
+BATH_OPTIONS = list(range(1,10))   # 1..9
 
 def file_digest(path):
     try:
@@ -42,45 +42,19 @@ def file_digest(path):
         return "n/a"
 
 def normalise_ber(val: str) -> str:
-    """
-    Map messy BER strings to one of BER_ORDER.
-    Handles 'BER Exempt', spacing, case, typos like 'A 2' -> 'A2', blanks -> 'Unknown'.
-    """
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return "Unknown"
     s = str(val).strip()
-    if s == "":
-        return "Unknown"
-
+    if s == "": return "Unknown"
     s_low = s.lower()
-    # Common 'exempt' variants
-    if "exempt" in s_low:
-        return "Exempt"
-
-    # Remove spaces like "A 2" -> "A2"
-    s_compact = re.sub(r"\s+", "", s.upper())
-
-    # Valid ratings without spaces
-    valid = set(BER_ORDER)
-    if s_compact in valid:
-        return s_compact
-
-    # Some datasets put hyphens or extra chars (e.g., "A-2")
-    s_compact = s_compact.replace("-", "")
-    if s_compact in valid:
-        return s_compact
-
-    # If it starts with a known prefix letter and a digit (A1..G), try to capture
+    if "exempt" in s_low: return "Exempt"
+    s_compact = re.sub(r"\s+", "", s.upper()).replace("-", "")
+    if s_compact in BER_ORDER: return s_compact
     m = re.match(r"^([A-G])(\d)$", s_compact)
     if m:
         guess = m.group(1) + m.group(2)
-        if guess in valid:
-            return guess
-
-    # Fallbacks
-    if s_low in {"n/a","na","none","unknown","-"}:
-        return "Unknown"
-
+        if guess in BER_ORDER: return guess
+    if s_low in {"n/a","na","none","unknown","-"}: return "Unknown"
     return "Unknown"
 
 @st.cache_data(show_spinner=False)
@@ -92,53 +66,43 @@ def load_full_dataset(path: str) -> pd.DataFrame:
         df = df.dropna(subset=["lat","lon"]).copy()
         df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
         df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-        df = df[df["lat"].between(-90, 90) & df["lon"].between(-180, 180)]
+        df = df[df["lat"].between(-90,90) & df["lon"].between(-180,180)]
 
-    # numeric coercions used elsewhere
     for c in NUMERIC_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # Bedrooms ensure numeric (if present)
     if "Bedrooms_int" in df.columns:
         df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce").astype("Int64")
 
-    # Bathrooms numeric + rounded int approx (handles 1.5 -> 2 for filtering if desired)
     if "Bathrooms" in df.columns:
         df["Bathrooms_num"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
         df["Bathrooms_int_approx"] = df["Bathrooms_num"].round().astype("Int64")
 
-    # Property type helper
     if "Property Type" in df.columns:
         df["Property_Type"] = df["Property Type"]
 
-    # Price display
     if "Price (€)" in df.columns:
         df["price_fmt"] = df["Price (€)"].map(lambda x: f"{int(x):,}" if pd.notna(x) else "-")
 
-    # Distance helper
     if "distance_to_city_centre_km" in df.columns:
         df["dist_centre"] = df["distance_to_city_centre_km"].round(2)
 
-    # ---- BER NORMALISATION (key change) ----
-    # Build normalised column BER_norm and categorical version for consistent filtering
-    if "BER Rating" in df.columns:
-        df["BER_norm"] = df["BER Rating"].apply(normalise_ber)
-    else:
-        df["BER_norm"] = "Unknown"
-    # Make ordered categorical for stable UI ordering
+    # BER normalization
+    df["BER_norm"] = df.get("BER Rating", "Unknown")
+    df["BER_norm"] = df["BER_norm"].apply(normalise_ber)
     cat_order = pd.CategoricalDtype(categories=BER_ORDER, ordered=True)
     df["BER_norm"] = df["BER_norm"].astype(cat_order)
 
     return df
 
 # ------------------------------
-# Load data
+# Load + top diagnostics
 # ------------------------------
 try:
     df = load_full_dataset(FULL_FILE)
 except Exception as e:
-    st.error(f"Couldn't load {FULL_FILE}. Make sure the file exists in the repo root.\nDetails: {e}")
+    st.error(f"Couldn't load {FULL_FILE}. Ensure it's in the repo root.\nDetails: {e}")
     st.stop()
 
 required_core = {"Address","Price (€)","lat","lon"}
@@ -147,98 +111,139 @@ if missing:
     st.error(f"Your CSV is missing required columns: {missing}")
     st.stop()
 
-# Diagnostics (prove what the app is using)
 mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(FULL_FILE))) if os.path.exists(FULL_FILE) else 'n/a'
-st.caption(
-    f"📄 Using file: **{FULL_FILE}** | rows: **{len(df)}** | md5: **{file_digest(FULL_FILE)}** | mtime: **{mtime}**"
-)
+st.caption(f"📄 Using file: **{FULL_FILE}** | rows: **{len(df)}** | md5: **{file_digest(FULL_FILE)}** | mtime: **{mtime}**")
 if "Price (€)" in df.columns:
-    pmin_actual = int(pd.to_numeric(df["Price (€)"], errors="coerce").min())
-    pmax_actual = int(pd.to_numeric(df["Price (€)"], errors="coerce").max())
-    st.caption(f"Data price range detected: €{pmin_actual:,} – €{pmax_actual:,}")
+    st.caption(f"Data price range detected: €{int(df['Price (€)'].min()):,} – €{int(df['Price (€)'].max()):,}")
 
 if st.button("🔄 Clear cache and reload"):
     st.cache_data.clear()
     st.rerun()
 
 # ------------------------------
-# Sidebar: Filters (collapsible groups)
+# Filter defaults + reset helper
+# ------------------------------
+def _set_default_filters(df):
+    st.session_state["search_q"] = ""
+    st.session_state["match_mode"] = "contains"
+    st.session_state["quick_pick"] = []
+
+    pmin = int(np.nanmin(df["Price (€)"]))
+    pmax = int(np.nanmax(df["Price (€)"]))
+    st.session_state["price_range"] = (pmin, pmax)
+
+    st.session_state["sel_beds"]  = BED_OPTIONS[:]
+    st.session_state["sel_baths"] = BATH_OPTIONS[:]
+
+    st.session_state["sel_types"] = (
+        sorted(df["Property Type"].dropna().unique().tolist())
+        if "Property Type" in df.columns else []
+    )
+
+    st.session_state["include_exempt"] = True
+    st.session_state["sel_ber"] = BER_ORDER[:]
+
+    st.session_state["energy_only"] = False
+    st.session_state["within_500m"] = False
+
+    if "distance_to_city_centre_km" in df.columns:
+        dmax = float(np.nanmax(df["distance_to_city_centre_km"]))
+        st.session_state["dist_centre"] = float(np.ceil(dmax))
+    else:
+        st.session_state["dist_centre"] = None
+
+    if "min_transit_km" in df.columns:
+        tmax = float(np.nanmax(df["min_transit_km"]))
+        st.session_state["max_transit"] = float(np.ceil(tmax))
+    else:
+        st.session_state["max_transit"] = None
+
+if "filters_init" not in st.session_state:
+    _set_default_filters(df)
+    st.session_state["filters_init"] = True
+
+# ------------------------------
+# Sidebar: Filters (with keys)
 # ------------------------------
 with st.sidebar:
     st.divider()
     st.header("Filters")
 
-    # --- Area search (text) ---
     search_q = st.text_input(
         "Search area (Address / Eircode)",
-        placeholder="e.g., Raheny or D05 (comma-separate for multiple)"
+        placeholder="e.g., Raheny or D05 (comma-separate for multiple)",
+        key="search_q"
     )
-    match_mode = st.selectbox("Match mode", ["contains","starts with"], index=0)
+    match_mode = st.selectbox("Match mode", ["contains","starts with"], key="match_mode")
 
-    # --- Area quick-pick (derived from Address suffix) ---
     areas = []
     if "Address" in df.columns:
         candidates = df["Address"].dropna().astype(str).map(lambda s: s.split(",")[-1].strip())
         areas = sorted(pd.Series(candidates).unique().tolist())
-    quick_pick = st.multiselect("Quick-pick area", areas, default=[])
+    quick_pick = st.multiselect("Quick-pick area", areas, key="quick_pick")
 
     with st.expander("Price & size", expanded=True):
-        # Price slider
         pmin = int(np.nanmin(df["Price (€)"]))
         pmax = int(np.nanmax(df["Price (€)"]))
-        price_range = st.slider("Price (€)", min_value=pmin, max_value=pmax, value=(pmin, pmax), step=50)
+        price_range = st.slider(
+            "Price (€)", min_value=pmin, max_value=pmax,
+            value=st.session_state["price_range"], step=50, key="price_range"
+        )
 
-        # Fixed pickers regardless of data
-        sel_beds = st.multiselect("Bedrooms", BED_OPTIONS, default=BED_OPTIONS)
-        sel_baths = st.multiselect("Bathrooms (≈ rounded)", BATH_OPTIONS, default=BATH_OPTIONS)
+        sel_beds = st.multiselect(
+            "Bedrooms", BED_OPTIONS, default=st.session_state["sel_beds"], key="sel_beds"
+        )
+        sel_baths = st.multiselect(
+            "Bathrooms (≈ rounded)", BATH_OPTIONS, default=st.session_state["sel_baths"], key="sel_baths"
+        )
 
     with st.expander("Type & energy", expanded=False):
-        # Property type
-        if "Property Type" in df.columns:
-            types = sorted(df["Property Type"].dropna().unique())
-            sel_types = st.multiselect("Property Type", types, default=types)
-        else:
-            sel_types = None
+        types = sorted(df["Property Type"].dropna().unique()) if "Property Type" in df.columns else []
+        sel_types = st.multiselect(
+            "Property Type", options=types, default=st.session_state["sel_types"], key="sel_types"
+        )
 
-        # BER — include Exempt by default, with toggle
-        ber_options = BER_ORDER[:]  # fixed full list, ordered
         exempt_count = int((df["BER_norm"].astype(str) == "Exempt").sum())
         st.caption(f"BER Exempt in data: {exempt_count} listings")
-        include_exempt = st.checkbox("Include BER Exempt", value=True)
-        default_ber = ber_options if include_exempt else [b for b in ber_options if b != "Exempt"]
+        include_exempt = st.checkbox("Include BER Exempt", value=st.session_state["include_exempt"], key="include_exempt")
+        default_ber = BER_ORDER[:] if include_exempt else [b for b in BER_ORDER if b != "Exempt"]
+        sel_ber = st.multiselect("BER Rating", options=BER_ORDER, default=default_ber, key="sel_ber")
 
-        sel_ber = st.multiselect("BER Rating", options=ber_options, default=default_ber)
-
-        energy_only = st.checkbox("Energy estimate available", value=False) if "energy_estimate_available" in df.columns else False
+        energy_only = st.checkbox("Energy estimate available", value=st.session_state["energy_only"], key="energy_only")
 
     with st.expander("Location & transit", expanded=False):
         if "distance_to_city_centre_km" in df.columns:
             dmax = float(np.nanmax(df["distance_to_city_centre_km"]))
             dist_centre = st.slider(
                 "Max distance to city centre (km)",
-                min_value=0.0, max_value=float(np.ceil(dmax)), value=float(np.ceil(dmax)), step=0.5
+                min_value=0.0, max_value=float(np.ceil(dmax)),
+                value=st.session_state["dist_centre"], step=0.5, key="dist_centre"
             )
         else:
             dist_centre = None
 
-        within_500m = st.checkbox("Within 500m of any transit", value=False) if "within_500m_transit" in df.columns else False
+        within_500m = st.checkbox(
+            "Within 500m of any transit",
+            value=st.session_state["within_500m"], key="within_500m"
+        )
 
-        max_transit = None
         if "min_transit_km" in df.columns:
             tmax = float(np.nanmax(df["min_transit_km"]))
             max_transit = st.slider(
                 "Max distance to nearest transit (km)",
-                min_value=0.0, max_value=float(np.ceil(tmax)), value=float(np.ceil(tmax)), step=0.1
+                min_value=0.0, max_value=float(np.ceil(tmax)),
+                value=st.session_state["max_transit"], step=0.1, key="max_transit"
             )
+        else:
+            max_transit = None
 
-    # Reset & legend
     if st.button("Reset filters"):
-        st.session_state.clear()
+        _set_default_filters(df)
         st.rerun()
 
     st.markdown("**Price bands (map colors)**")
     st.markdown("""
-- 🟡 ≤ €1,499  
+- 🟤 ≤ €1,499  
 - 🟢 €1,500–2,000  
 - 🔴 €2,001–2,500  
 - 🔵 €2,501–3,000  
@@ -256,7 +261,7 @@ debug_counts = {"start": len(f)}
 f = f[(f["Price (€)"] >= price_range[0]) & (f["Price (€)"] <= price_range[1])]
 debug_counts["price"] = len(f)
 
-# Bedrooms (use Bedrooms_int if available; fallback parse from text)
+# Bedrooms
 if "Bedrooms_int" in f.columns and f["Bedrooms_int"].notna().any():
     f = f[f["Bedrooms_int"].astype("Int64").isin(sel_beds)]
 else:
@@ -265,7 +270,7 @@ else:
         f = f[parsed.isin(sel_beds)]
 debug_counts["beds"] = len(f)
 
-# Bathrooms (rounded integer approx)
+# Bathrooms (rounded)
 if "Bathrooms_int_approx" in f.columns:
     f = f[f["Bathrooms_int_approx"].isin(sel_baths)]
 elif "Bathrooms" in f.columns:
@@ -275,12 +280,12 @@ elif "Bathrooms" in f.columns:
 debug_counts["baths"] = len(f)
 
 # Type
-if sel_types is not None and "Property Type" in f.columns:
+if len(sel_types) and "Property Type" in f.columns:
     f = f[f["Property Type"].isin(sel_types)]
 debug_counts["type"] = len(f)
 
-# ---- BER filter uses BER_norm (normalized!) ----
-if sel_ber is not None and "BER_norm" in f.columns:
+# BER (normalized)
+if len(sel_ber) and "BER_norm" in f.columns:
     f = f[f["BER_norm"].astype(str).isin(sel_ber)]
 debug_counts["ber"] = len(f)
 
@@ -301,13 +306,13 @@ if energy_only and "energy_estimate_available" in f.columns:
     f = f[f["energy_estimate_available"] == True]
 debug_counts["energy_only"] = len(f)
 
-# Area / Eircode text search
+# Search / eircode
 if search_q and search_q.strip():
     terms = [t.strip().lower() for t in search_q.split(",") if t.strip()]
 
     def _normalise(text):
         text = text.lower() if isinstance(text, str) else ""
-        text = text.replace("dublin ", "d")  # dublin 5 ~ d5
+        text = text.replace("dublin ", "d")
         return text
 
     def _match(text: str) -> bool:
@@ -325,7 +330,7 @@ if search_q and search_q.strip():
 debug_counts["search"] = len(f)
 
 # Quick-pick area
-if quick_pick and "Address" in f.columns:
+if len(quick_pick) and "Address" in f.columns:
     f = f[f["Address"].astype(str).str.strip().str.split(",").str[-1].str.strip().isin(quick_pick)]
 debug_counts["quick_pick"] = len(f)
 
@@ -352,24 +357,26 @@ with col4:
 st.divider()
 
 # ------------------------------
-# Map (token-free, fixed Dublin view)
+# Map (token-free; Dublin center)
 # ------------------------------
+def price_to_color(price):
+    # ≤ 1499 brown, then green/red/blue/purple/black
+    if price <= 1499: return [139, 69, 19]
+    if price <= 2000: return [0, 255, 0]
+    if price <= 2500: return [255, 0, 0]
+    if price <= 3000: return [0, 0, 255]
+    if price <= 4000: return [128, 0, 128]
+    return [0, 0, 0]
+
 if "Price (€)" in f.columns:
-    def price_to_color(price):
-        if price <= 1499: return [139, 69, 19]
-        if price <= 2000: return [0, 255, 0]
-        if price <= 2500: return [255, 0, 0]
-        if price <= 3000: return [0, 0, 255]
-        if price <= 4000: return [128, 0, 128]
-        return [0, 0, 0]
     f["color"] = f["Price (€)"].apply(price_to_color)
 
 g = f.copy()
-for col in ["lat", "lon"]:
+for col in ["lat","lon"]:
     if col in g.columns:
         g[col] = pd.to_numeric(g[col], errors="coerce")
 g = g.dropna(subset=["lat","lon"])
-g = g[g["lat"].between(-90, 90) & g["lon"].between(-180, 180)]
+g = g[g["lat"].between(-90,90) & g["lon"].between(-180,180)]
 
 DUBLIN_LAT, DUBLIN_LON, DUBLIN_ZOOM = 53.3498, -6.2603, 11.0
 view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
@@ -507,7 +514,7 @@ else:
     st.warning("No listings match your filters. Try widening your criteria.")
 
 # ------------------------------
-# Details panel
+# Details panel & Debug
 # ------------------------------
 st.markdown("### Quick details")
 st.caption("Tick ⭐ on a row and click the button above to show details here.")
@@ -537,24 +544,14 @@ if sel_key:
     else:
         st.caption("Selection not in current filter results.")
 
-# ------------------------------
-# Footer / Debug
-# ------------------------------
 with st.expander("Debug & Schema"):
     st.write("Columns present:", list(df.columns))
     st.write("Rows (original → filtered):", len(df), "→", len(f))
     st.write("Filter step counts:", debug_counts)
-    # Show BER raw vs normalized to confirm mapping
-    if "BER Rating" in df.columns:
-        st.write("BER raw top values:", df["BER Rating"].astype(str).value_counts().head(10))
     st.write("BER normalized counts:", df["BER_norm"].astype(str).value_counts().to_dict())
-    if "Bathrooms" in df.columns:
-        st.write("Bathrooms unique (rounded 1dp):", sorted(df['Bathrooms_num'].dropna().round(1).unique().tolist()) if 'Bathrooms_num' in df.columns else [])
     if "Bedrooms_int" in df.columns:
-        st.write("Bedrooms unique (from data):", sorted([int(x) for x in df['Bedrooms_int'].dropna().unique()]))
+        st.write("Bedrooms unique:", sorted([int(x) for x in df["Bedrooms_int"].dropna().unique()]))
     if "Price (€)" in df.columns:
         st.write("Price min/max:", int(df["Price (€)"].min()), int(df["Price (€)"].max()))
-    if "URL" in f.columns and len(f):
-        st.write("Example URL:", f["URL"].iloc[0])
 
 st.caption("MVP. Add scoring, SHAP, and model predictions later. 🚀")
