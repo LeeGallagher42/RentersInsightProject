@@ -338,8 +338,9 @@ with col1:
 with col2:
     st.metric("Avg price (€)", f["Price (€)"].mean().round(0) if len(f) else 0)
 with col3:
-    if "effective_monthly_cost" in f.columns:
-        st.metric("Median effective cost (€)", int(f["effective_monthly_cost"].median()) if len(f) else 0)
+    if "effective_monthly_cost" in f.columns and len(f):
+        med = pd.to_numeric(f["effective_monthly_cost"], errors="coerce").median(skipna=True)
+        st.metric("Median effective cost (€)", int(med) if pd.notna(med) else "—")
     else:
         st.metric("Median effective cost (€)", "—")
 with col4:
@@ -355,7 +356,7 @@ st.divider()
 # ------------------------------
 if "Price (€)" in f.columns:
     def price_to_color(price):
-        if price <= 1499: return [255, 255, 0]
+        if price <= 1499: return [139, 69, 19]
         if price <= 2000: return [0, 255, 0]
         if price <= 2500: return [255, 0, 0]
         if price <= 3000: return [0, 0, 255]
@@ -404,7 +405,7 @@ else:
         <div style='display:flex; justify-content:flex-end; margin-top:-10px;'>
           <div style='background: rgba(255,255,255,0.95); padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:12px;'>
             <div style='font-weight:600; margin-bottom:4px;'>Price bands</div>
-            <div><span style='display:inline-block;width:12px;height:12px;background:#ffff00;border:1px solid #999;margin-right:6px;'></span>≤ €1,499</div>
+            <div><span style='display:inline-block;width:12px;height:12px;background:#8B4513;border:1px solid #999;margin-right:6px;'></span>≤ €1,499</div>
             <div><span style='display:inline-block;width:12px;height:12px;background:#00ff00;border:1px solid #999;margin-right:6px;'></span>€1,500–2,000</div>
             <div><span style='display:inline-block;width:12px;height:12px;background:#ff0000;border:1px solid #999;margin-right:6px;'></span>€2,001–2,500</div>
             <div><span style='display:inline-block;width:12px;height:12px;background:#0000ff;border:1px solid #999;margin-right:6px;'></span>€2,501–3,000</div>
