@@ -116,13 +116,7 @@ if missing:
     st.stop()
 
 mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(FULL_FILE))) if os.path.exists(FULL_FILE) else 'n/a'
-st.caption(f"📄 Using file: **{FULL_FILE}** | rows: **{len(df)}** | md5: **{file_digest(FULL_FILE)}** | mtime: **{mtime}**")
-if "Price (€)" in df.columns:
-    st.caption(f"Data price range detected: €{int(df['Price (€)'].min()):,} – €{int(df['Price (€)'].max()):,}")
 
-if st.button("🔄 Clear cache and reload"):
-    st.cache_data.clear()
-    st.rerun()
 
 # ------------------------------
 # Filter defaults + reset helper
