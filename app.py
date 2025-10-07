@@ -409,15 +409,15 @@ else:
         pickable=True,
         auto_highlight=True,
     )
-    
-    # Prepare tooltip fields
-if "pred_price" in f.columns:
-    # round to nearest euro
-    f["pred_price"] = f["pred_price"].apply(lambda x: f"{round(x):,}" if pd.notna(x) else "—")
-if "delta_pct" in f.columns:
-    # replace inf, then round to 2 decimal places and show +/-
-    f["delta_pct"] = f["delta_pct"].replace([np.inf, -np.inf], np.nan)
-    f["delta_pct"] = f["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
+
+    # ✅ Prepare tooltip fields (keep this INSIDE the else block, same level as layer)
+    if "pred_price" in f.columns:
+        # round to nearest euro
+        f["pred_price"] = f["pred_price"].apply(lambda x: f"{round(x):,}" if pd.notna(x) else "—")
+    if "delta_pct" in f.columns:
+        # replace inf, then round to 2 decimal places and show +/-
+        f["delta_pct"] = f["delta_pct"].replace([np.inf, -np.inf], np.nan)
+        f["delta_pct"] = f["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
 
     tooltip = {
                "html": """
