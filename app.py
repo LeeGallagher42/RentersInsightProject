@@ -428,20 +428,20 @@ else:
         f["delta_pct"] = f["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
 
     tooltip = {
-               "html": """
-            <div style='font-size:12px'>
-              <b>{Address}</b><br/>
-              Actual: €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
-              BER: {BER Rating} • {dist_centre} km to centre • Transit: {min_transit_km} km<br/>
-              <span style='display:inline-block;margin-top:4px;'>
-                Fair rent: <b>€{pred_price}</b>
-                &nbsp;(<b>{delta_pct}</b>%)
-              </span>
-            </div>
-        """,
+    "html": """
+        <div style='font-size:12px'>
+          <b>{Address}</b><br/>
+          Actual: €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
+          BER: {BER Rating} • {dist_centre} km to city centre<br/>
+          <span style='display:inline-block;margin-top:4px;'>
+            Fair rent: <b>€{pred_price}</b>
+            &nbsp;(<b>{delta_pct}</b>%)
+          </span>
+        </div>
+    """,
+    "style": {"backgroundColor": "#111", "color": "#fff"}
+}
 
-        "style": {"backgroundColor": "#111", "color": "#fff"}
-    }
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view, layers=[layer], tooltip=tooltip))
 
     st.markdown(
