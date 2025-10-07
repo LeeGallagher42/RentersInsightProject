@@ -21,7 +21,10 @@ NUMERIC_COLS = [
     "nearest_bus_stop_km","nearest_rail_station_km","nearest_tram_stop_km",
     "distance_to_city_centre_km","price_per_bedroom","energy_monthly_estimate",
     "effective_monthly_cost","min_transit_km",
+    # new prediction fields
+    "pred_price","delta_pct","Fairness_Delta",
 ]
+
 
 PRIMARY_COLS = [
     "Address","Property Type","Bedrooms","Bathrooms","BER Rating",
