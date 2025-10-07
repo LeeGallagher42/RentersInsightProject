@@ -30,7 +30,7 @@ PRIMARY_COLS = [
     "energy_estimate_available","URL"
 ]
 
-FULL_FILE = "cleaned_data_enriched.csv"
+FULL_FILE = "cleaned_data_enriched_with_fairness.csv"
 BED_OPTIONS  = list(range(1,10))   # 1..9
 BATH_OPTIONS = list(range(1,10))   # 1..9
 
