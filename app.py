@@ -28,7 +28,8 @@ NUMERIC_COLS = [
 
 PRIMARY_COLS = [
     "Address","Property Type","Bedrooms","Bathrooms","BER Rating",
-    "Price (€)","effective_monthly_cost","price_per_bedroom",
+    "Price (€)","pred_price","Fairness_Delta","delta_pct",
+    "effective_monthly_cost","price_per_bedroom",
     "distance_to_city_centre_km","min_transit_km","within_500m_transit",
     "energy_estimate_available","URL"
 ]
