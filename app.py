@@ -392,6 +392,14 @@ for col in ["lat","lon"]:
         g[col] = pd.to_numeric(g[col], errors="coerce")
 g = g.dropna(subset=["lat","lon"])
 g = g[g["lat"].between(-90,90) & g["lon"].between(-180,180)]
+# ✅ Round/format fair rent fields for tooltip on the map
+if "pred_price" in g.columns:
+    g["pred_price"] = g["pred_price"].apply(lambda x: f"{round(x):,}" if pd.notna(x) else "—")
+if "delta_pct" in g.columns:
+    g["delta_pct"] = g["delta_pct"].replace([np.inf, -np.inf], np.nan)
+    g["delta_pct"] = g["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
+
+
 
 DUBLIN_LAT, DUBLIN_LON, DUBLIN_ZOOM = 53.3498, -6.2603, 11.0
 view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
