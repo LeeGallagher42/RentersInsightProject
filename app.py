@@ -409,15 +409,27 @@ else:
         pickable=True,
         auto_highlight=True,
     )
+    
+    # Prepare tooltip fields
+if "pred_price" in f.columns:
+    f["pred_price"] = f["pred_price"].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "—")
+if "delta_pct" in f.columns:
+    f["delta_pct"] = f["delta_pct"].replace([np.inf, -np.inf], np.nan)
+    f["delta_pct"] = f["delta_pct"].apply(lambda x: f"{x:+.0f}" if pd.notna(x) else "—")
+
     tooltip = {
-        "html": """
+               "html": """
             <div style='font-size:12px'>
               <b>{Address}</b><br/>
-              €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
-              BER: {BER_norm} • {dist_centre} km to centre<br/>
-              Transit: {min_transit_km} km
+              Actual: €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
+              BER: {BER Rating} • {dist_centre} km to centre • Transit: {min_transit_km} km<br/>
+              <span style='display:inline-block;margin-top:4px;'>
+                Fair rent: <b>€{pred_price}</b>
+                &nbsp;(<b>{delta_pct}</b>%)
+              </span>
             </div>
         """,
+
         "style": {"backgroundColor": "#111", "color": "#fff"}
     }
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view, layers=[layer], tooltip=tooltip))
@@ -489,6 +501,13 @@ if len(f):
         col_cfg["distance_to_city_centre_km"] = st.column_config.NumberColumn(label="Km to centre", format="%.2f")
     if "min_transit_km" in show_cols:
         col_cfg["min_transit_km"] = st.column_config.NumberColumn(label="Km to transit", format="%.2f")
+    if "pred_price" in show_cols:
+        col_cfg["pred_price"] = st.column_config.NumberColumn(label="Fair rent (€)", format="%.0f")
+    if "Fairness_Delta" in show_cols:
+        col_cfg["Fairness_Delta"] = st.column_config.NumberColumn(label="Δ vs fair (€)", format="%.0f")
+    if "delta_pct" in show_cols:
+        col_cfg["delta_pct"] = st.column_config.NumberColumn(label="Δ vs fair (%)", format="%.0f%%")
+
 
     key_col = "URL" if "URL" in f.columns else "Address"
     display = f[show_cols].copy().reset_index(drop=True)
