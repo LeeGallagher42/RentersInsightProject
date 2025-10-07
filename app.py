@@ -564,6 +564,8 @@ if sel_key:
                 lines.append(f"**{label}:** {row[col]}")
         add_line("Address", "Address")
         add_line("Price (€)", "Price (€)")
+        add_line("Fair rent (€)", "pred_price")
+        add_line("Δ vs fair (%)", "delta_pct")
         add_line("Bedrooms", "Bedrooms")
         add_line("Bathrooms", "Bathrooms")
         add_line("BER", "BER_norm")
