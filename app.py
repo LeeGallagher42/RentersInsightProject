@@ -31,7 +31,8 @@ PRIMARY_COLS = [
     "Price (€)","pred_price","Fairness_Delta","delta_pct",
     "effective_monthly_cost","price_per_bedroom",
     "distance_to_city_centre_km","min_transit_km","within_500m_transit",
-    "energy_estimate_available","URL"
+    "energy_estimate_available","URL",
+    "image_url"
 ]
 
 FULL_FILE = "cleaned_data_enriched_with_fairness.csv"
@@ -108,6 +109,25 @@ try:
 except Exception as e:
     st.error(f"Couldn't load {FULL_FILE}. Ensure it's in the repo root.\nDetails: {e}")
     st.stop()
+
+# Attach pre-fetched image URLs (from your enrich_images.py output)
+IMAGE_FILE = "data/df_master_with_images.csv"
+if os.path.exists(IMAGE_FILE):
+    try:
+        _img_df = pd.read_csv(IMAGE_FILE, usecols=["URL", "image_url"])
+        df["URL"] = df.get("URL","").astype(str).str.strip()
+        _img_df["URL"] = _img_df["URL"].astype(str).str.strip()
+        df = df.merge(_img_df, on="URL", how="left")
+    except Exception as _e:
+        # Safe fallback: create empty column if merge fails
+        df["image_url"] = ""
+else:
+    # No image file yet — create empty column so later code won't crash
+    if "image_url" not in df.columns:
+        df["image_url"] = ""
+
+st.caption(f"Images available: {(df.get('image_url','')!='').sum()} rows")
+
 
 required_core = {"Address","Price (€)","lat","lon"}
 missing = [c for c in required_core if c not in df.columns]
@@ -421,20 +441,32 @@ else:
         f["delta_pct"] = f["delta_pct"].replace([np.inf, -np.inf], np.nan)
         f["delta_pct"] = f["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
 
+    # 🆕 build HTML <img> snippet from image_url for tooltip
+    def _mk_img_tag(u):
+        if isinstance(u, str) and u.startswith("http"):
+            return ("<img src='" + u + "' width='220' "
+                    "style='border-radius:6px;max-height:150px;object-fit:cover;'/>")
+        return ""
+
+    g["image_tag"] = g.get("image_url", "").apply(_mk_img_tag)
+
+    # 🆕 updated tooltip HTML with photo at the bottom
     tooltip = {
-    "html": """
-        <div style='font-size:12px'>
-          <b>{Address}</b><br/>
-          Actual: €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
-          BER: {BER Rating} • {dist_centre} km to city centre<br/>
-          <span style='display:inline-block;margin-top:4px;'>
-            Fair rent: <b>€{pred_price}</b>
-            &nbsp;(<b>{delta_pct}</b>%)
-          </span>
-        </div>
-    """,
-    "style": {"backgroundColor": "#111", "color": "#fff"}
-}
+        "html": """
+            <div style='font-size:12px'>
+              <b>{Address}</b><br/>
+              Actual: €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
+              BER: {BER Rating} • {dist_centre} km to city centre<br/>
+              <span style='display:inline-block;margin-top:4px;'>
+                Fair rent: <b>€{pred_price}</b>
+                &nbsp;(<b>{delta_pct}</b>%)
+              </span>
+              <div style='margin-top:8px;'>{image_tag}</div>
+            </div>
+        """,
+        "style": {"backgroundColor": "#111", "color": "#fff"}
+    }
+
 
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view, layers=[layer], tooltip=tooltip))
 
@@ -489,6 +521,10 @@ st.divider()
 # Table with Link column + Favourites + Saved panel
 # ------------------------------
 show_cols = [c for c in PRIMARY_COLS if c in f.columns]
+# Ensure preview appears first in the table if available
+if "image_url" in f.columns and "image_url" not in show_cols:
+    show_cols = ["image_url"] + show_cols
+
 if len(f):
     st.subheader("Matching listings")
 
@@ -511,6 +547,8 @@ if len(f):
         col_cfg["Fairness_Delta"] = st.column_config.NumberColumn(label="Δ vs fair (€)", format="%.0f")
     if "delta_pct" in show_cols:
         col_cfg["delta_pct"] = st.column_config.NumberColumn(label="Δ vs fair (%)", format="%.0f%%")
+    if "image_url" in show_cols:
+        col_cfg["image_url"] = st.column_config.ImageColumn(label="Preview", width="small")
 
 
     key_col = "URL" if "URL" in f.columns else "Address"
