@@ -219,7 +219,7 @@ with st.expander("ℹ️ About this app"):
 - **Value badge:** Combines price delta and confidence to label listings (🔥 underpriced → 💰 overpriced).
 - **Limitations:** Missing floor area in many listings; geocoding accuracy; no causal claims.
 
-*Built by [Your Name]* — feedback welcome.
+*Built by Lee Gallagher* — feedback welcome.
 """)
 
 
