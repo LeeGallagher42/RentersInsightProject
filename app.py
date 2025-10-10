@@ -611,19 +611,35 @@ st.divider()
 # ------------------------------
 # Explainability: Feature importances (model-level)
 # ------------------------------
+
 st.subheader("What drives price (model view)")
-imp_path = "feature_importances.csv"  # put a small CSV: feature,importance
+imp_path = "feature_importances.csv"  # two cols: feature,importance
 try:
     imps = pd.read_csv(imp_path)
     imps = imps.rename(columns={imps.columns[0]: "feature", imps.columns[1]: "importance"})
-    imps = imps.sort_values("importance", ascending=True).tail(10)
-    chart = alt.Chart(imps).mark_bar().encode(
-        x=alt.X("importance:Q", title="Importance"),
-        y=alt.Y("feature:N", sort="-x", title="Feature"),
-        tooltip=["feature","importance"]
-    ).properties(height=260)
+    imps = imps.sort_values("importance", ascending=True)  # show ALL features, smallest → largest
+
+    # Dynamic height so labels never get cramped
+    n = len(imps)
+    h = int(min(max(26 * n, 260), 600))  # 26px/row, clamp between 260 and 600
+
+    chart = (
+        alt.Chart(imps)
+        .mark_bar()
+        .encode(
+            x=alt.X("importance:Q", title="Importance"),
+            y=alt.Y(
+                "feature:N",
+                sort="-x",
+                title="Feature",
+                axis=alt.Axis(labelLimit=320, labelPadding=6)
+            ),
+            tooltip=["feature", alt.Tooltip("importance:Q", format=".4f")]
+        )
+        .properties(height=h)
+    )
     st.altair_chart(chart, use_container_width=True)
-    st.caption("Random Forest feature importances (top 10).")
+    st.caption(f"Random Forest feature importances (all {n} features).")
 except Exception:
     st.caption("Feature importances file not found yet.")
 
