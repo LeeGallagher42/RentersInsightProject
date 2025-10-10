@@ -35,6 +35,30 @@ PRIMARY_COLS = [
     "image_url"
 ]
 
+# ---- Value badge thresholds & confidence defaults ----
+# If you later add per-row pred_lo/pred_hi, the app will use them automatically.
+CV_RMSE_EUR = 300  # ≈ your cross-val RMSE in euros. Tune this number.
+
+BADGE_THRESH_1 = 5    # ±5% -> Fair
+BADGE_THRESH_2 = 15   # 5–15% -> Slightly Over/Under; >15% -> Over/Under
+
+BADGE_LABELS = {
+    "UNDER": "Underpriced",
+    "SLIGHT_UNDER": "Slightly under",
+    "FAIR": "Fair",
+    "SLIGHT_OVER": "Slightly over",
+    "OVER": "Overpriced",
+}
+BADGE_ICONS = {
+    "UNDER": "🔥",
+    "SLIGHT_UNDER": "✅",
+    "FAIR": "🟢",
+    "SLIGHT_OVER": "🟠",
+    "OVER": "💰",
+}
+BADGE_ORDER = {"UNDER": 0, "SLIGHT_UNDER": 1, "FAIR": 2, "SLIGHT_OVER": 3, "OVER": 4}
+
+
 FULL_FILE = "cleaned_data_enriched_with_fairness.csv"
 BED_OPTIONS  = list(range(1,10))   # 1..9
 BATH_OPTIONS = list(range(1,10))   # 1..9
@@ -128,6 +152,53 @@ else:
 
 st.caption(f"Images available: {(df.get('image_url','')!='').sum()} rows")
 
+# ---- Confidence band & Value badge columns ----
+# 1) Use pred_lo/pred_hi if your CSV has them; otherwise fallback to ±CV_RMSE_EUR
+if {"pred_lo","pred_hi"}.issubset(df.columns):
+    # Per-row band (% around pred)
+    df["conf_eur"] = (df["pred_hi"] - df["pred_lo"]) / 2.0
+else:
+    df["conf_eur"] = CV_RMSE_EUR
+
+# 2) Confidence as percent of prediction (cap sane values)
+if "pred_price" in df.columns:
+    df["conf_pct"] = np.where(
+        (df["pred_price"] > 0) & pd.notna(df["pred_price"]),
+        100.0 * (df["conf_eur"] / df["pred_price"]),
+        np.nan
+    ).clip(0, 50)
+else:
+    df["conf_pct"] = np.nan
+
+# 3) Ensure delta_pct exists (100 * (asking - pred) / pred)
+if "delta_pct" not in df.columns and {"Price (€)","pred_price"}.issubset(df.columns):
+    df["delta_pct"] = np.where(
+        (df["pred_price"] > 0) & pd.notna(df["pred_price"]),
+        100.0 * (df["Price (€)"] - df["pred_price"]) / df["pred_price"],
+        np.nan
+    )
+
+# 4) Badge logic (use conf_pct to treat small deltas as Fair)
+def _badge_from_delta(delta_pct, conf_pct):
+    if pd.isna(delta_pct): 
+        return "FAIR"
+    band = conf_pct if pd.notna(conf_pct) else BADGE_THRESH_1
+    d = float(delta_pct)
+    # inside band => FAIR
+    if abs(d) <= max(BADGE_THRESH_1, band):
+        return "FAIR"
+    if d < 0:
+        return "SLIGHT_UNDER" if abs(d) <= BADGE_THRESH_2 else "UNDER"
+    else:
+        return "SLIGHT_OVER" if d <= BADGE_THRESH_2 else "OVER"
+
+df["value_code"] = df.apply(lambda r: _badge_from_delta(r.get("delta_pct"), r.get("conf_pct")), axis=1)
+df["value_badge"] = df["value_code"].map(BADGE_LABELS)
+df["value_emoji"] = df["value_code"].map(BADGE_ICONS)
+
+# Pretty formats
+df["conf_eur_fmt"] = df["conf_eur"].apply(lambda x: f"{int(round(x)):,}" if pd.notna(x) else "—")
+
 
 required_core = {"Address","Price (€)","lat","lon"}
 missing = [c for c in required_core if c not in df.columns]
@@ -136,6 +207,20 @@ if missing:
     st.stop()
 
 mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(FULL_FILE))) if os.path.exists(FULL_FILE) else 'n/a'
+
+with st.expander("ℹ️ About this app"):
+    st.markdown("""
+**Daft.ie Rental Intelligence (MVP+)**
+
+- **Goal:** Estimate *fair rent* and surface **value**.
+- **Data:** Dublin rental listings (cleaned, geocoded, enriched with amenities).
+- **Model:** RandomForestRegressor baseline.
+- **Confidence:** Fair rent shown with a simple ± band (CV RMSE). If available, uses per-listing prediction intervals.
+- **Value badge:** Combines price delta and confidence to label listings (🔥 underpriced → 💰 overpriced).
+- **Limitations:** Missing floor area in many listings; geocoding accuracy; no causal claims.
+
+*Built by [Your Name]* — feedback welcome.
+""")
 
 
 # ------------------------------
@@ -413,6 +498,10 @@ if "delta_pct" in g.columns:
     g["delta_pct"] = g["delta_pct"].replace([np.inf, -np.inf], np.nan)
     g["delta_pct"] = g["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
 
+if "conf_eur" in g.columns:
+    g["conf_eur_fmt"] = g["conf_eur"].apply(lambda x: f"{int(round(x)):,}" if pd.notna(x) else "—")
+if "value_badge" in g.columns and "value_emoji" in g.columns:
+    g["value_label"] = g["value_emoji"].fillna("") + " " + g["value_badge"].fillna("")
 
 
 DUBLIN_LAT, DUBLIN_LON, DUBLIN_ZOOM = 53.3498, -6.2603, 11.0
@@ -451,21 +540,23 @@ else:
     g["image_tag"] = g.get("image_url", "").apply(_mk_img_tag)
 
     # 🆕 updated tooltip HTML with photo at the bottom
-    tooltip = {
+       tooltip = {
         "html": """
             <div style='font-size:12px'>
               <b>{Address}</b><br/>
               Actual: €{price_fmt} • {Bedrooms} bed • {Property_Type}<br/>
               BER: {BER Rating} • {dist_centre} km to city centre<br/>
               <span style='display:inline-block;margin-top:4px;'>
-                Fair rent: <b>€{pred_price}</b>
+                Fair rent: <b>€{pred_price}</b> &nbsp;± €{conf_eur_fmt}
                 &nbsp;(<b>{delta_pct}</b>%)
-              </span>
+              </span><br/>
+              <span><b>Value:</b> {value_label}</span>
               <div style='margin-top:8px;'>{image_tag}</div>
             </div>
         """,
         "style": {"backgroundColor": "#111", "color": "#fff"}
     }
+
 
 
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view, layers=[layer], tooltip=tooltip))
@@ -518,9 +609,35 @@ with chart_cols[1]:
 st.divider()
 
 # ------------------------------
+# Explainability: Feature importances (model-level)
+# ------------------------------
+st.subheader("What drives price (model view)")
+imp_path = "feature_importances.csv"  # put a small CSV: feature,importance
+try:
+    imps = pd.read_csv(imp_path)
+    imps = imps.rename(columns={imps.columns[0]: "feature", imps.columns[1]: "importance"})
+    imps = imps.sort_values("importance", ascending=True).tail(10)
+    chart = alt.Chart(imps).mark_bar().encode(
+        x=alt.X("importance:Q", title="Importance"),
+        y=alt.Y("feature:N", sort="-x", title="Feature"),
+        tooltip=["feature","importance"]
+    ).properties(height=260)
+    st.altair_chart(chart, use_container_width=True)
+    st.caption("Random Forest feature importances (top 10).")
+except Exception:
+    st.caption("Feature importances file not found yet.")
+
+
+# ------------------------------
 # Table with Link column + Favourites + Saved panel
 # ------------------------------
 show_cols = [c for c in PRIMARY_COLS if c in f.columns]
+# Add Value & Confidence columns if available
+for extra in ["value_emoji","value_badge","conf_eur"]:
+    if extra in f.columns and extra not in show_cols:
+        show_cols.append(extra)
+
+
 # Ensure preview appears first in the table if available
 if "image_url" in f.columns and "image_url" not in show_cols:
     show_cols = ["image_url"] + show_cols
@@ -549,9 +666,25 @@ if len(f):
         col_cfg["delta_pct"] = st.column_config.NumberColumn(label="Δ vs fair (%)", format="%.0f%%")
     if "image_url" in show_cols:
         col_cfg["image_url"] = st.column_config.ImageColumn(label="Preview", width="small")
+    if "value_badge" in show_cols:
+        col_cfg["value_badge"] = st.column_config.TextColumn(label="Value")
+    if "value_emoji" in show_cols:
+        col_cfg["value_emoji"] = st.column_config.TextColumn(label=" ")
+    if "conf_eur" in show_cols:
+        col_cfg["conf_eur"] = st.column_config.NumberColumn(label="± € (conf)", format="%.0f")
 
 
     key_col = "URL" if "URL" in f.columns else "Address"
+
+# Default sort: best value first (underpriced ➜ fair ➜ overpriced)
+if "value_code" in f.columns and "delta_pct" in f.columns:
+    sort_map = BADGE_ORDER  # UNDER(0) -> ... -> OVER(4)
+    f = f.assign(
+        _value_rank = f["value_code"].map(sort_map).fillna(99),
+        _delta_abs = f["delta_pct"].abs()
+    ).sort_values(by=["_value_rank","_delta_abs"], ascending=[True, True]).drop(columns=["_value_rank","_delta_abs"])
+
+
     display = f[show_cols].copy().reset_index(drop=True)
 
     if "favs" not in st.session_state:
@@ -632,4 +765,17 @@ with st.expander("Debug & Schema"):
     if "Price (€)" in df.columns:
         st.write("Price min/max:", int(df["Price (€)"].min()), int(df["Price (€)"].max()))
 
-st.caption("MVP. Add scoring, SHAP, and model predictions later.")
+
+st.divider()
+st.markdown(
+    """
+    <div style='text-align:center; font-size:14px; opacity:0.9; margin-top:10px; line-height:1.6;'>
+        Built by <b><a href='https://www.linkedin.com/in/lee-gallagher-7ba1721a3/' target='_blank' style='text-decoration:none; color:inherit;'>Lee Gallagher</a></b><br>
+        <a href='https://www.linkedin.com/in/lee-gallagher-7ba1721a3/' target='_blank'>🔗 LinkedIn</a> |
+        <a href='https://github.com/LeeGallagher42' target='_blank'>💻 GitHub</a><br>
+        <span style='font-size:12px; color:#888;'>Data scraped, cleaned, and modelled to analyse Dublin rental fairness.</span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
