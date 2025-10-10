@@ -216,7 +216,7 @@ with st.expander("ℹ️ About this app"):
 - **Data:** Dublin rental listings (cleaned, geocoded, enriched with amenities).
 - **Model:** RandomForestRegressor baseline.
 - **Confidence:** Fair rent shown with a simple ± band (CV RMSE). If available, uses per-listing prediction intervals.
-- **Value badge:** Combines price delta and confidence to label listings (🔥 underpriced → 💰 overpriced).
+- **Value badge:** Combines price delta and confidence to label listings ( underpriced → overpriced).
 - **Limitations:** Missing floor area in many listings; geocoding accuracy; no causal claims.
 
 *Built by Lee Gallagher* — feedback welcome.
