@@ -37,10 +37,10 @@ PRIMARY_COLS = [
 
 # ---- Value badge thresholds & confidence defaults ----
 # If you later add per-row pred_lo/pred_hi, the app will use them automatically.
-CV_RMSE_EUR = 300  # ≈ your cross-val RMSE in euros. Tune this number.
+CV_RMSE_EUR = 822  # ≈ your cross-val RMSE in euros. Tune this number.
 
-BADGE_THRESH_1 = 5    # ±5% -> Fair
-BADGE_THRESH_2 = 15   # 5–15% -> Slightly Over/Under; >15% -> Over/Under
+BADGE_THRESH_1 = 3    # ±5% -> Fair
+BADGE_THRESH_2 = 7   # 5–15% -> Slightly Over/Under; >15% -> Over/Under
 
 BADGE_LABELS = {
     "UNDER": "Underpriced",
