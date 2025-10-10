@@ -37,27 +37,44 @@ PRIMARY_COLS = [
 
 # ---- Value badge thresholds & confidence defaults ----
 # If you later add per-row pred_lo/pred_hi, the app will use them automatically.
-CV_RMSE_EUR = 822  # ≈ your cross-val RMSE in euros. Tune this number.
+# ---- Confidence band & Value badge settings ----
+# Keep showing your honest RMSE if you like; it no longer affects badges.
+CV_RMSE_EUR = 822   # your holdout RMSE
 
-BADGE_THRESH_1 = 3    # ±5% -> Fair
-BADGE_THRESH_2 = 7   # 5–15% -> Slightly Over/Under; >15% -> Over/Under
+# Absolute % delta bands (|delta_pct|)
+B_FAIR  = 4     # 0–4%        -> FAIR
+B_SLIGHT = 7    # >4–7%       -> SLIGHT over/under
+B_OVER  = 10    # >7–10%      -> OVER/UNDER
+B_VERY  = 15    # >10–15%     -> OVER/UNDER (strong)
+# >15%            -> VERY over/under
 
 BADGE_LABELS = {
-    "UNDER": "Underpriced",
-    "SLIGHT_UNDER": "Slightly under",
-    "FAIR": "Fair",
-    "SLIGHT_OVER": "Slightly over",
-    "OVER": "Overpriced",
+    "VERY_UNDER":   "Very underpriced",
+    "UNDER":        "Underpriced",
+    "SLIGHT_UNDER": "Slightly underpriced",
+    "FAIR":         "Fair",
+    "SLIGHT_OVER":  "Slightly overpriced",
+    "OVER":         "Overpriced",
+    "VERY_OVER":    "Very overpriced",
 }
 BADGE_ICONS = {
-    "UNDER": "🔥",
+    "VERY_UNDER":   "🔥🔥",
+    "UNDER":        "🔥",
     "SLIGHT_UNDER": "✅",
-    "FAIR": "🟢",
-    "SLIGHT_OVER": "🟠",
-    "OVER": "💰",
+    "FAIR":         "🟢",
+    "SLIGHT_OVER":  "🟠",
+    "OVER":         "💰",
+    "VERY_OVER":    "💰💰",
 }
-BADGE_ORDER = {"UNDER": 0, "SLIGHT_UNDER": 1, "FAIR": 2, "SLIGHT_OVER": 3, "OVER": 4}
-
+BADGE_ORDER = {
+    "VERY_UNDER": 0,
+    "UNDER": 1,
+    "SLIGHT_UNDER": 2,
+    "FAIR": 3,
+    "SLIGHT_OVER": 4,
+    "OVER": 5,
+    "VERY_OVER": 6,
+}
 
 FULL_FILE = "cleaned_data_enriched_with_fairness.csv"
 BED_OPTIONS  = list(range(1,10))   # 1..9
@@ -177,52 +194,88 @@ else:
 
 st.caption(f"Images available: {(df.get('image_url','')!='').sum()} rows")
 
-# ---- Confidence band & Value badge columns ----
-# 1) Use pred_lo/pred_hi if your CSV has them; otherwise fallback to ±CV_RMSE_EUR
-if {"pred_lo","pred_hi"}.issubset(df.columns):
-    # Per-row band (% around pred)
-    df["conf_eur"] = (df["pred_hi"] - df["pred_lo"]) / 2.0
-else:
-    df["conf_eur"] = CV_RMSE_EUR
+# ---- Confidence & Value columns ----
+# We still compute confidence for display, but it does NOT affect badges.
+CV_RMSE_EUR = 822  # your holdout RMSE; shows in "± € (conf)" only
 
-# 2) Confidence as percent of prediction (cap sane values)
-if "pred_price" in df.columns:
-    df["conf_pct"] = np.where(
-        (df["pred_price"] > 0) & pd.notna(df["pred_price"]),
-        100.0 * (df["conf_eur"] / df["pred_price"]),
-        np.nan
+# 1) Confidence numbers (display-only)
+if {"pred_price"}.issubset(df.columns):
+    df["conf_eur"] = CV_RMSE_EUR
+    df["conf_pct"] = (
+        100.0 * df["conf_eur"].where(df["pred_price"] > 0, np.nan) / df["pred_price"]
     ).clip(0, 50)
 else:
+    df["conf_eur"] = np.nan
     df["conf_pct"] = np.nan
 
-# 3) Ensure delta_pct exists (100 * (asking - pred) / pred)
-if "delta_pct" not in df.columns and {"Price (€)","pred_price"}.issubset(df.columns):
+# 2) Ensure delta_pct exists: 100 * (asking - pred) / pred
+if "delta_pct" not in df.columns and {"Price (€)", "pred_price"}.issubset(df.columns):
     df["delta_pct"] = np.where(
         (df["pred_price"] > 0) & pd.notna(df["pred_price"]),
         100.0 * (df["Price (€)"] - df["pred_price"]) / df["pred_price"],
-        np.nan
+        np.nan,
     )
 
-# 4) Badge logic (use conf_pct to treat small deltas as Fair)
-def _badge_from_delta(delta_pct, conf_pct):
-    if pd.isna(delta_pct): 
-        return "FAIR"
-    band = conf_pct if pd.notna(conf_pct) else BADGE_THRESH_1
-    d = float(delta_pct)
-    # inside band => FAIR
-    if abs(d) <= max(BADGE_THRESH_1, band):
-        return "FAIR"
-    if d < 0:
-        return "SLIGHT_UNDER" if abs(d) <= BADGE_THRESH_2 else "UNDER"
-    else:
-        return "SLIGHT_OVER" if d <= BADGE_THRESH_2 else "OVER"
+# 3) Deterministic badge from absolute percentage delta (ignores confidence)
+B_FAIR   = 4    # 0–4%         -> FAIR
+B_SLIGHT = 7    # >4–7%        -> SLIGHT over/under
+B_OVER   = 10   # >7–10%       -> OVER/UNDER
+B_VERY   = 15   # >10–15%      -> OVER/UNDER (strong)
+# >15%                -> VERY over/under
 
-df["value_code"] = df.apply(lambda r: _badge_from_delta(r.get("delta_pct"), r.get("conf_pct")), axis=1)
-df["value_badge"] = df["value_code"].map(BADGE_LABELS)
+BADGE_LABELS = {
+    "VERY_UNDER":   "Very underpriced",
+    "UNDER":        "Underpriced",
+    "SLIGHT_UNDER": "Slightly underpriced",
+    "FAIR":         "Fair",
+    "SLIGHT_OVER":  "Slightly overpriced",
+    "OVER":         "Overpriced",
+    "VERY_OVER":    "Very overpriced",
+}
+BADGE_ICONS = {
+    "VERY_UNDER":   "🔥🔥",
+    "UNDER":        "🔥",
+    "SLIGHT_UNDER": "✅",
+    "FAIR":         "🟢",
+    "SLIGHT_OVER":  "🟠",
+    "OVER":         "💰",
+    "VERY_OVER":    "💰💰",
+}
+BADGE_ORDER = {
+    "VERY_UNDER": 0,
+    "UNDER": 1,
+    "SLIGHT_UNDER": 2,
+    "FAIR": 3,
+    "SLIGHT_OVER": 4,
+    "OVER": 5,
+    "VERY_OVER": 6,
+}
+
+def _badge_from_delta_only(delta_pct):
+    if pd.isna(delta_pct):
+        return "FAIR"
+    a = abs(float(delta_pct))
+    if a <= B_FAIR:
+        return "FAIR"
+    elif a <= B_SLIGHT:
+        return "SLIGHT_UNDER" if delta_pct < 0 else "SLIGHT_OVER"
+    elif a <= B_OVER:
+        return "UNDER" if delta_pct < 0 else "OVER"
+    elif a <= B_VERY:
+        return "UNDER" if delta_pct < 0 else "OVER"  # strong but same label
+    else:
+        return "VERY_UNDER" if delta_pct < 0 else "VERY_OVER"
+
+df["value_code"]  = df["delta_pct"].apply(_badge_from_delta_only)
+df["value_label"] = df["value_code"].map(BADGE_LABELS)
 df["value_emoji"] = df["value_code"].map(BADGE_ICONS)
 
-# Pretty formats
+# If you were previously using 'value_badge' in the table, keep it in sync:
+df["value_badge"] = df["value_label"]
+
+# Pretty format for the confidence € column
 df["conf_eur_fmt"] = df["conf_eur"].apply(lambda x: f"{int(round(x)):,}" if pd.notna(x) else "—")
+
 
 
 required_core = {"Address","Price (€)","lat","lon"}
