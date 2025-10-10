@@ -136,19 +136,44 @@ except Exception as e:
 
 # Attach pre-fetched image URLs (from your enrich_images.py output)
 IMAGE_FILE = "data/df_master_with_images.csv"
+# Attach pre-fetched image URLs (from your enrich_images.py output)
+IMAGE_FILE = "data/df_master_with_images.csv"
+
+def _norm_url(u: str) -> str:
+    if not isinstance(u, str): return ""
+    u = u.strip()
+    if not u: return ""
+    u = u.split("?")[0].rstrip("/")   # drop query params & trailing slash
+    return u
+
 if os.path.exists(IMAGE_FILE):
     try:
         _img_df = pd.read_csv(IMAGE_FILE, usecols=["URL", "image_url"])
-        df["URL"] = df.get("URL","").astype(str).str.strip()
-        _img_df["URL"] = _img_df["URL"].astype(str).str.strip()
-        df = df.merge(_img_df, on="URL", how="left")
+        # Normalise URL keys on both sides
+        df["URL"] = df.get("URL", "").astype(str).map(_norm_url)
+        _img_df["URL"] = _img_df["URL"].astype(str).map(_norm_url)
+
+        # Merge
+        df = df.merge(_img_df, on="URL", how="left", validate="m:1")
+
+        # Debug stats so we can see what's happening
+        total_urls = df["URL"].ne("").sum()
+        ok_imgs = df["image_url"].notna().sum() if "image_url" in df.columns else 0
+        st.caption(f"Images available: {ok_imgs} rows (URLs in df: {total_urls}, in cache: {_img_df['URL'].nunique()})")
+
+        # If still zero, show a few sample URLs to compare
+        if ok_imgs == 0:
+            st.info("No image matches found — showing a few sample URLs to compare (first 3):")
+            st.write("df URLs:", df.loc[df["URL"] != "", "URL"].head(3).tolist())
+            st.write("cache URLs:", _img_df["URL"].head(3).tolist())
+
     except Exception as _e:
-        # Safe fallback: create empty column if merge fails
         df["image_url"] = ""
 else:
-    # No image file yet — create empty column so later code won't crash
     if "image_url" not in df.columns:
         df["image_url"] = ""
+    st.caption("Images cache file not found; image_url column initialised empty.")
+
 
 st.caption(f"Images available: {(df.get('image_url','')!='').sum()} rows")
 
