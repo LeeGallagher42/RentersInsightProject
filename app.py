@@ -679,10 +679,17 @@ if len(f):
 # Default sort: best value first (underpriced ➜ fair ➜ overpriced)
 if "value_code" in f.columns and "delta_pct" in f.columns:
     sort_map = BADGE_ORDER  # UNDER(0) -> ... -> OVER(4)
-    f = f.assign(
-        _value_rank = f["value_code"].map(sort_map).fillna(99),
-        _delta_abs = f["delta_pct"].abs()
-    ).sort_values(by=["_value_rank","_delta_abs"], ascending=[True, True]).drop(columns=["_value_rank","_delta_abs"])
+    # Ensure numeric for sorting even if someone formatted delta_pct earlier
+    delta_num = pd.to_numeric(f["delta_pct"], errors="coerce")
+    f = (
+        f.assign(
+            _value_rank = f["value_code"].map(sort_map).astype(float).fillna(99),
+            _delta_abs = delta_num.abs()
+        )
+        .sort_values(by=["_value_rank", "_delta_abs"], ascending=[True, True])
+        .drop(columns=["_value_rank", "_delta_abs"])
+    )
+
 
 
     display = f[show_cols].copy().reset_index(drop=True)
