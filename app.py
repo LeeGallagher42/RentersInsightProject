@@ -540,7 +540,7 @@ else:
     g["image_tag"] = g.get("image_url", "").apply(_mk_img_tag)
 
     # 🆕 updated tooltip HTML with photo at the bottom
-       tooltip = {
+    tooltip = {
         "html": """
             <div style='font-size:12px'>
               <b>{Address}</b><br/>
