@@ -21,32 +21,25 @@ NUMERIC_COLS = [
     "nearest_bus_stop_km","nearest_rail_station_km","nearest_tram_stop_km",
     "distance_to_city_centre_km","price_per_bedroom","energy_monthly_estimate",
     "effective_monthly_cost","min_transit_km",
-    # new prediction fields
     "pred_price","delta_pct","Fairness_Delta",
 ]
-
 
 PRIMARY_COLS = [
     "Address","Property Type","Bedrooms","Bathrooms","BER Rating",
     "Price (€)","pred_price","Fairness_Delta","delta_pct",
     "effective_monthly_cost","price_per_bedroom",
     "distance_to_city_centre_km","min_transit_km","within_500m_transit",
-    "energy_estimate_available","URL",
-    "image_url"
-]
+    "energy_estimate_available","URL"
+]  # Removed "image_url"
 
 # ---- Value badge thresholds & confidence defaults ----
-# If you later add per-row pred_lo/pred_hi, the app will use them automatically.
-# ---- Confidence band & Value badge settings ----
-# Keep showing your honest RMSE if you like; it no longer affects badges.
-CV_RMSE_EUR = 822   # your holdout RMSE
+CV_RMSE_EUR = 822
 
-# Absolute % delta bands (|delta_pct|)
-B_FAIR  = 4     # 0–4%        -> FAIR
-B_SLIGHT = 7    # >4–7%       -> SLIGHT over/under
-B_OVER  = 10    # >7–10%      -> OVER/UNDER
-B_VERY  = 15    # >10–15%     -> OVER/UNDER (strong)
-# >15%            -> VERY over/under
+# Absolute % delta bands
+B_FAIR  = 4
+B_SLIGHT = 7
+B_OVER  = 10
+B_VERY  = 15
 
 BADGE_LABELS = {
     "VERY_UNDER":   "Very underpriced",
@@ -77,8 +70,8 @@ BADGE_ORDER = {
 }
 
 FULL_FILE = "cleaned_data_enriched_with_fairness.csv"
-BED_OPTIONS  = list(range(1,10))   # 1..9
-BATH_OPTIONS = list(range(1,10))   # 1..9
+BED_OPTIONS  = list(range(1,10))
+BATH_OPTIONS = list(range(1,10))
 
 def file_digest(path):
     try:
@@ -102,6 +95,34 @@ def normalise_ber(val: str) -> str:
         if guess in BER_ORDER: return guess
     if s_low in {"n/a","na","none","unknown","-"}: return "Unknown"
     return "Unknown"
+
+@st.cache_data(show_spinner=False)
+def load_full_dataset(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    if {"lat","lon"}.issubset(df.columns):
+        df = df.dropna(subset=["lat","lon"]).copy()
+        df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
+        df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
+        df = df[df["lat"].between(-90,90) & df["lon"].between(-180,180)]
+    for c in NUMERIC_COLS:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    if "Bedrooms_int" in df.columns:
+        df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce").astype("Int64")
+    if "Bathrooms" in df.columns:
+        df["Bathrooms_num"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
+        df["Bathrooms_int_approx"] = df["Bathrooms_num"].round().astype("Int64")
+    if "Property Type" in df.columns:
+        df["Property_Type"] = df["Property Type"]
+    if "Price (€)" in df.columns:
+        df["price_fmt"] = df["Price (€)"].map(lambda x: f"{int(x):,}" if pd.notna(x) else "-")
+    if "distance_to_city_centre_km" in df.columns:
+        df["dist_centre"] = df["distance_to_city_centre_km"].round(2)
+    df["BER_norm"] = df.get("BER Rating", "Unknown")
+    df["BER_norm"] = df["BER_norm"].apply(normalise_ber)
+    cat_order = pd.CategoricalDtype(categories=BER_ORDER, ordered=True)
+    df["BER_norm"] = df["BER_norm"].astype(cat_order)
+    return df
 
 @st.cache_data(show_spinner=False)
 def load_full_dataset(path: str) -> pd.DataFrame:
