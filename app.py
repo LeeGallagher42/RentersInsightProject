@@ -630,13 +630,13 @@ else:
         f["delta_pct"] = f["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
 
     # 🆕 build HTML <img> snippet from image_url for tooltip
-    def _mk_img_tag(u):
-        if isinstance(u, str) and u.startswith("http"):
-            return ("<img src='" + u + "' width='220' "
-                    "style='border-radius:6px;max-height:150px;object-fit:cover;'/>")
-        return ""
+    #def _mk_img_tag(u):
+        #if isinstance(u, str) and u.startswith("http"):
+            #return ("<img src='" + u + "' width='220' "
+                    #"style='border-radius:6px;max-height:150px;object-fit:cover;'/>")
+        #return ""
 
-    g["image_tag"] = g.get("image_url", "").apply(_mk_img_tag)
+    #g["image_tag"] = g.get("image_url", "").apply(_mk_img_tag)
 
     # 🆕 updated tooltip HTML with photo at the bottom
     tooltip = {
@@ -650,7 +650,7 @@ else:
                 &nbsp;(<b>{delta_pct}</b>%)
               </span><br/>
               <span><b>Value:</b> {value_label}</span>
-              <div style='margin-top:8px;'>{image_tag}</div>
+              #<div style='margin-top:8px;'>{image_tag}</div>
             </div>
         """,
         "style": {"backgroundColor": "#111", "color": "#fff"}
@@ -754,8 +754,8 @@ for extra in ["value_emoji","value_badge","conf_eur"]:
 
 
 # Ensure preview appears first in the table if available
-if "image_url" in f.columns and "image_url" not in show_cols:
-    show_cols = ["image_url"] + show_cols
+#if "image_url" in f.columns and "image_url" not in show_cols:
+    #show_cols = ["image_url"] + show_cols
 
 if len(f):
     st.subheader("Matching listings")
@@ -779,8 +779,8 @@ if len(f):
         col_cfg["Fairness_Delta"] = st.column_config.NumberColumn(label="Δ vs fair (€)", format="%.0f")
     if "delta_pct" in show_cols:
         col_cfg["delta_pct"] = st.column_config.NumberColumn(label="Δ vs fair (%)", format="%.0f%%")
-    if "image_url" in show_cols:
-        col_cfg["image_url"] = st.column_config.ImageColumn(label="Preview", width="small")
+    #if "image_url" in show_cols:
+        #col_cfg["image_url"] = st.column_config.ImageColumn(label="Preview", width="small")
     if "value_badge" in show_cols:
         col_cfg["value_badge"] = st.column_config.TextColumn(label="Value")
     if "value_emoji" in show_cols:
