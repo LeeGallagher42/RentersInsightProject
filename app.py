@@ -8,9 +8,9 @@ import streamlit as st
 import pydeck as pdk
 import altair as alt
 
-# ------------------------------
+# ==============================
 # Constants & helpers
-# ------------------------------
+# ==============================
 BER_ORDER = [
     "A1","A2","A3","B1","B2","B3","C1","C2","C3","D1","D2","E1","E2","F","G","Exempt","Unknown"
 ]
@@ -30,12 +30,11 @@ PRIMARY_COLS = [
     "effective_monthly_cost","price_per_bedroom",
     "distance_to_city_centre_km","min_transit_km","within_500m_transit",
     "energy_estimate_available","URL"
-]  # Removed "image_url"
+]
 
 # ---- Value badge thresholds & confidence defaults ----
-CV_RMSE_EUR = 822
+CV_RMSE_EUR = 822  # used for display only
 
-# Absolute % delta bands
 B_FAIR  = 4
 B_SLIGHT = 7
 B_OVER  = 10
@@ -69,7 +68,6 @@ BADGE_ORDER = {
     "VERY_OVER": 6,
 }
 
-FULL_FILE = "cleaned_data_enriched_with_fairness.csv"
 BED_OPTIONS  = list(range(1,10))
 BATH_OPTIONS = list(range(1,10))
 
@@ -99,34 +97,6 @@ def normalise_ber(val: str) -> str:
 @st.cache_data(show_spinner=False)
 def load_full_dataset(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
-    if {"lat","lon"}.issubset(df.columns):
-        df = df.dropna(subset=["lat","lon"]).copy()
-        df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-        df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-        df = df[df["lat"].between(-90,90) & df["lon"].between(-180,180)]
-    for c in NUMERIC_COLS:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-    if "Bedrooms_int" in df.columns:
-        df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce").astype("Int64")
-    if "Bathrooms" in df.columns:
-        df["Bathrooms_num"] = pd.to_numeric(df["Bathrooms"], errors="coerce")
-        df["Bathrooms_int_approx"] = df["Bathrooms_num"].round().astype("Int64")
-    if "Property Type" in df.columns:
-        df["Property_Type"] = df["Property Type"]
-    if "Price (€)" in df.columns:
-        df["price_fmt"] = df["Price (€)"].map(lambda x: f"{int(x):,}" if pd.notna(x) else "-")
-    if "distance_to_city_centre_km" in df.columns:
-        df["dist_centre"] = df["distance_to_city_centre_km"].round(2)
-    df["BER_norm"] = df.get("BER Rating", "Unknown")
-    df["BER_norm"] = df["BER_norm"].apply(normalise_ber)
-    cat_order = pd.CategoricalDtype(categories=BER_ORDER, ordered=True)
-    df["BER_norm"] = df["BER_norm"].astype(cat_order)
-    return df
-
-@st.cache_data(show_spinner=False)
-def load_full_dataset(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
 
     # keep only rows with valid coordinates
     if {"lat","lon"}.issubset(df.columns):
@@ -135,10 +105,12 @@ def load_full_dataset(path: str) -> pd.DataFrame:
         df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
         df = df[df["lat"].between(-90,90) & df["lon"].between(-180,180)]
 
+    # coerce numeric cols
     for c in NUMERIC_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
+    # engineered helpers
     if "Bedrooms_int" in df.columns:
         df["Bedrooms_int"] = pd.to_numeric(df["Bedrooms_int"], errors="coerce").astype("Int64")
 
@@ -161,116 +133,23 @@ def load_full_dataset(path: str) -> pd.DataFrame:
     cat_order = pd.CategoricalDtype(categories=BER_ORDER, ordered=True)
     df["BER_norm"] = df["BER_norm"].astype(cat_order)
 
+    # ensure delta_pct if possible
+    if "delta_pct" not in df.columns and {"Price (€)", "pred_price"}.issubset(df.columns):
+        df["delta_pct"] = np.where(
+            (df["pred_price"] > 0) & pd.notna(df["pred_price"]),
+            100.0 * (df["Price (€)"] - df["pred_price"]) / df["pred_price"],
+            np.nan,
+        )
+
+    # confidence (display only)
+    if "pred_price" in df.columns:
+        df["conf_eur"] = CV_RMSE_EUR
+        df["conf_pct"] = (100.0 * df["conf_eur"].where(df["pred_price"] > 0, np.nan) / df["pred_price"]).clip(0, 50)
+    else:
+        df["conf_eur"] = np.nan
+        df["conf_pct"] = np.nan
+
     return df
-
-# ------------------------------
-# Load + top diagnostics
-# ------------------------------
-try:
-    df = load_full_dataset(FULL_FILE)
-except Exception as e:
-    st.error(f"Couldn't load {FULL_FILE}. Ensure it's in the repo root.\nDetails: {e}")
-    st.stop()
-
-# Attach pre-fetched image URLs (from your enrich_images.py output)
-IMAGE_FILE = "data/df_master_with_images.csv"
-# Attach pre-fetched image URLs (from your enrich_images.py output)
-IMAGE_FILE = "data/df_master_with_images.csv"
-
-def _norm_url(u: str) -> str:
-    if not isinstance(u, str): return ""
-    u = u.strip()
-    if not u: return ""
-    u = u.split("?")[0].rstrip("/")   # drop query params & trailing slash
-    return u
-
-if os.path.exists(IMAGE_FILE):
-    try:
-        _img_df = pd.read_csv(IMAGE_FILE, usecols=["URL", "image_url"])
-        # Normalise URL keys on both sides
-        df["URL"] = df.get("URL", "").astype(str).map(_norm_url)
-        _img_df["URL"] = _img_df["URL"].astype(str).map(_norm_url)
-
-        # Merge
-        df = df.merge(_img_df, on="URL", how="left", validate="m:1")
-
-        # Debug stats so we can see what's happening
-        total_urls = df["URL"].ne("").sum()
-        ok_imgs = df["image_url"].notna().sum() if "image_url" in df.columns else 0
-        st.caption(f"Images available: {ok_imgs} rows (URLs in df: {total_urls}, in cache: {_img_df['URL'].nunique()})")
-
-        # If still zero, show a few sample URLs to compare
-        if ok_imgs == 0:
-            st.info("No image matches found — showing a few sample URLs to compare (first 3):")
-            st.write("df URLs:", df.loc[df["URL"] != "", "URL"].head(3).tolist())
-            st.write("cache URLs:", _img_df["URL"].head(3).tolist())
-
-    except Exception as _e:
-        df["image_url"] = ""
-else:
-    if "image_url" not in df.columns:
-        df["image_url"] = ""
-    st.caption("Images cache file not found; image_url column initialised empty.")
-
-
-st.caption(f"Images available: {(df.get('image_url','')!='').sum()} rows")
-
-# ---- Confidence & Value columns ----
-# We still compute confidence for display, but it does NOT affect badges.
-CV_RMSE_EUR = 822  # your holdout RMSE; shows in "± € (conf)" only
-
-# 1) Confidence numbers (display-only)
-if {"pred_price"}.issubset(df.columns):
-    df["conf_eur"] = CV_RMSE_EUR
-    df["conf_pct"] = (
-        100.0 * df["conf_eur"].where(df["pred_price"] > 0, np.nan) / df["pred_price"]
-    ).clip(0, 50)
-else:
-    df["conf_eur"] = np.nan
-    df["conf_pct"] = np.nan
-
-# 2) Ensure delta_pct exists: 100 * (asking - pred) / pred
-if "delta_pct" not in df.columns and {"Price (€)", "pred_price"}.issubset(df.columns):
-    df["delta_pct"] = np.where(
-        (df["pred_price"] > 0) & pd.notna(df["pred_price"]),
-        100.0 * (df["Price (€)"] - df["pred_price"]) / df["pred_price"],
-        np.nan,
-    )
-
-# 3) Deterministic badge from absolute percentage delta (ignores confidence)
-B_FAIR   = 4    # 0–4%         -> FAIR
-B_SLIGHT = 7    # >4–7%        -> SLIGHT over/under
-B_OVER   = 10   # >7–10%       -> OVER/UNDER
-B_VERY   = 15   # >10–15%      -> OVER/UNDER (strong)
-# >15%                -> VERY over/under
-
-BADGE_LABELS = {
-    "VERY_UNDER":   "Very underpriced",
-    "UNDER":        "Underpriced",
-    "SLIGHT_UNDER": "Slightly underpriced",
-    "FAIR":         "Fair",
-    "SLIGHT_OVER":  "Slightly overpriced",
-    "OVER":         "Overpriced",
-    "VERY_OVER":    "Very overpriced",
-}
-BADGE_ICONS = {
-    "VERY_UNDER":   "🔥🔥",
-    "UNDER":        "🔥",
-    "SLIGHT_UNDER": "✅",
-    "FAIR":         "🟢",
-    "SLIGHT_OVER":  "🟠",
-    "OVER":         "💰",
-    "VERY_OVER":    "💰💰",
-}
-BADGE_ORDER = {
-    "VERY_UNDER": 0,
-    "UNDER": 1,
-    "SLIGHT_UNDER": 2,
-    "FAIR": 3,
-    "SLIGHT_OVER": 4,
-    "OVER": 5,
-    "VERY_OVER": 6,
-}
 
 def _badge_from_delta_only(delta_pct):
     if pd.isna(delta_pct):
@@ -283,22 +162,50 @@ def _badge_from_delta_only(delta_pct):
     elif a <= B_OVER:
         return "UNDER" if delta_pct < 0 else "OVER"
     elif a <= B_VERY:
-        return "UNDER" if delta_pct < 0 else "OVER"  # strong but same label
+        return "UNDER" if delta_pct < 0 else "OVER"
     else:
         return "VERY_UNDER" if delta_pct < 0 else "VERY_OVER"
 
-df["value_code"]  = df["delta_pct"].apply(_badge_from_delta_only)
-df["value_label"] = df["value_code"].map(BADGE_LABELS)
-df["value_emoji"] = df["value_code"].map(BADGE_ICONS)
+# ==============================
+# Load + top diagnostics
+# ==============================
+# Option A: fixed file (your current default)
+# FULL_FILE = "cleaned_data_enriched_with_fairness.csv"
 
-# If you were previously using 'value_badge' in the table, keep it in sync:
-df["value_badge"] = df["value_label"]
+# Option B (recommended): selectable source in sidebar
+DATA_FILES = {
+    "Enriched + fairness": "cleaned_data_enriched_with_fairness.csv",
+    "Enriched (no fairness)": "cleaned_data_enriched.csv",
+}
+with st.sidebar:
+    st.divider()
+    st.subheader("Data source")
+    data_choice = st.radio("CSV file", list(DATA_FILES.keys()), index=0, key="csv_choice")
+    if st.button("Reload data"):
+        st.cache_data.clear()
+        st.rerun()
 
-# Pretty format for the confidence € column
+FULL_FILE = DATA_FILES[st.session_state.get("csv_choice", "Enriched + fairness")]
+
+try:
+    df = load_full_dataset(FULL_FILE)
+except Exception as e:
+    st.error(f"Couldn't load {FULL_FILE}. Ensure it's in the repo root.\nDetails: {e}")
+    st.stop()
+
+# No images in this version. If any lingering column exists, drop it.
+if "image_url" in df.columns:
+    df = df.drop(columns=["image_url"])
+
+# Value badge columns (deterministic from delta_pct)
+if "delta_pct" in df.columns:
+    df["value_code"]  = df["delta_pct"].apply(_badge_from_delta_only)
+    df["value_label"] = df["value_code"].map(BADGE_LABELS)
+    df["value_emoji"] = df["value_code"].map(BADGE_ICONS)
+    df["value_badge"] = df["value_label"]
 df["conf_eur_fmt"] = df["conf_eur"].apply(lambda x: f"{int(round(x)):,}" if pd.notna(x) else "—")
 
-
-
+# Required core check
 required_core = {"Address","Price (€)","lat","lon"}
 missing = [c for c in required_core if c not in df.columns]
 if missing:
@@ -314,17 +221,16 @@ with st.expander("ℹ️ About this app"):
 - **Goal:** Estimate *fair rent* and surface **value**.
 - **Data:** Dublin rental listings (cleaned, geocoded, enriched with amenities).
 - **Model:** RandomForestRegressor baseline.
-- **Confidence:** Fair rent shown with a simple ± band (CV RMSE). If available, uses per-listing prediction intervals.
-- **Value badge:** Combines price delta and confidence to label listings ( underpriced → overpriced).
+- **Confidence:** Fair rent shown with a simple ± band (CV RMSE).
+- **Value badge:** Based on percentage delta vs fair rent.
 - **Limitations:** Missing floor area in many listings; geocoding accuracy; no causal claims.
 
 *Built by Lee Gallagher* — feedback welcome.
 """)
 
-
-# ------------------------------
+# ==============================
 # Filter defaults + reset helper
-# ------------------------------
+# ==============================
 def _set_default_filters(df):
     st.session_state["search_q"] = ""
     st.session_state["match_mode"] = "contains"
@@ -364,9 +270,9 @@ if "filters_init" not in st.session_state:
     _set_default_filters(df)
     st.session_state["filters_init"] = True
 
-# ------------------------------
-# Sidebar: Filters (with keys)
-# ------------------------------
+# ==============================
+# Sidebar: Filters
+# ==============================
 with st.sidebar:
     st.divider()
     st.header("Filters")
@@ -439,20 +345,18 @@ with st.sidebar:
         else:
             max_transit = None
 
-    # ---- Reset button ----
-if st.button("Reset filters"):
-    # remove filter keys so the init block will rebuild defaults on rerun
-    for k in [
-        "search_q", "match_mode", "quick_pick",
-        "price_range", "sel_beds", "sel_baths",
-        "sel_types", "include_exempt", "sel_ber",
-        "energy_only", "within_500m",
-        "dist_centre", "max_transit",
-    ]:
-        st.session_state.pop(k, None)
-    st.session_state.pop("filters_init", None)  # force init on next run
-    st.rerun()
-
+    # Reset button + legend
+    if st.button("Reset filters"):
+        for k in [
+            "search_q", "match_mode", "quick_pick",
+            "price_range", "sel_beds", "sel_baths",
+            "sel_types", "include_exempt", "sel_ber",
+            "energy_only", "within_500m",
+            "dist_centre", "max_transit",
+        ]:
+            st.session_state.pop(k, None)
+        st.session_state.pop("filters_init", None)
+        st.rerun()
 
     st.markdown("**Price bands (map colors)**")
     st.markdown("""
@@ -464,9 +368,9 @@ if st.button("Reset filters"):
 - ⚫ €4,001+
 """)
 
-# ------------------------------
-# Apply filters (with debug counts)
-# ------------------------------
+# ==============================
+# Apply filters
+# ==============================
 f = df.copy()
 debug_counts = {"start": len(f)}
 
@@ -487,13 +391,14 @@ debug_counts["beds"] = len(f)
 if "Bathrooms_int_approx" in f.columns:
     f = f[f["Bathrooms_int_approx"].isin(sel_baths)]
 elif "Bathrooms" in f.columns:
+    # already engineered in load, but keep guard
     f["Bathrooms_num"] = pd.to_numeric(f["Bathrooms"], errors="coerce")
     f["Bathrooms_int_approx"] = f["Bathrooms_num"].round().astype("Int64")
     f = f[f["Bathrooms_int_approx"].isin(sel_baths)]
 debug_counts["baths"] = len(f)
 
 # Type
-if len(sel_types) and "Property Type" in f.columns:
+if "Property Type" in f.columns and len(sel_types):
     f = f[f["Property Type"].isin(sel_types)]
 debug_counts["type"] = len(f)
 
@@ -503,7 +408,7 @@ if len(sel_ber) and "BER_norm" in f.columns:
 debug_counts["ber"] = len(f)
 
 # Centre / transit / energy
-if dist_centre is not None and "distance_to_city_centre_km" in f.columns:
+if 'distance_to_city_centre_km' in f.columns and 'dist_centre' in locals() and dist_centre is not None:
     f = f[f["distance_to_city_centre_km"] <= dist_centre]
 debug_counts["dist_centre"] = len(f)
 
@@ -511,7 +416,7 @@ if within_500m and "within_500m_transit" in f.columns:
     f = f[f["within_500m_transit"] == True]
 debug_counts["within_500m"] = len(f)
 
-if max_transit is not None and "min_transit_km" in f.columns:
+if 'min_transit_km' in f.columns and 'max_transit' in locals() and max_transit is not None:
     f = f[f["min_transit_km"] <= max_transit]
 debug_counts["transit"] = len(f)
 
@@ -519,37 +424,34 @@ if energy_only and "energy_estimate_available" in f.columns:
     f = f[f["energy_estimate_available"] == True]
 debug_counts["energy_only"] = len(f)
 
-# Search / eircode
+# Search / eircode (robust contains)
 if search_q and search_q.strip():
     terms = [t.strip().lower() for t in search_q.split(",") if t.strip()]
-
-    def _normalise(text):
-        text = text.lower() if isinstance(text, str) else ""
-        text = text.replace("dublin ", "d")
-        return text
-
-    def _match(text: str) -> bool:
-        t = _normalise(text)
-        return any(term in t or t.replace("d", "dublin ") in term for term in terms)
-
+    def norm(x): 
+        s = (x or "").lower()
+        s = re.sub(r"\s+", " ", s)
+        return s
+    def any_term_in(s):
+        s = norm(s)
+        return any(term in s for term in terms)
     mask = None
     if "Address" in f.columns:
-        mask = f["Address"].apply(_match)
+        mask = f["Address"].astype(str).apply(any_term_in)
     if "Eircode" in f.columns:
-        m2 = f["Eircode"].apply(_match)
+        m2 = f["Eircode"].astype(str).apply(any_term_in)
         mask = m2 if mask is None else (mask | m2)
     if mask is not None:
         f = f[mask]
 debug_counts["search"] = len(f)
 
-# Quick-pick area
+# Quick pick by trailing area
 if len(quick_pick) and "Address" in f.columns:
     f = f[f["Address"].astype(str).str.strip().str.split(",").str[-1].str.strip().isin(quick_pick)]
 debug_counts["quick_pick"] = len(f)
 
-# ------------------------------
+# ==============================
 # KPIs
-# ------------------------------
+# ==============================
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Listings", len(f))
@@ -569,12 +471,11 @@ with col4:
 
 st.divider()
 
-# ------------------------------
-# Map (token-free; Dublin center)
-# ------------------------------
+# ==============================
+# Map
+# ==============================
 def price_to_color(price):
-    # ≤ 1499 brown, then green/red/blue/purple/black
-    if price <= 1499: return [139, 69, 19]
+    if price <= 1499: return [139, 69, 19]  # brown
     if price <= 2000: return [0, 255, 0]
     if price <= 2500: return [255, 0, 0]
     if price <= 3000: return [0, 0, 255]
@@ -590,55 +491,36 @@ for col in ["lat","lon"]:
         g[col] = pd.to_numeric(g[col], errors="coerce")
 g = g.dropna(subset=["lat","lon"])
 g = g[g["lat"].between(-90,90) & g["lon"].between(-180,180)]
-# ✅ Round/format fair rent fields for tooltip on the map
-if "pred_price" in g.columns:
-    g["pred_price"] = g["pred_price"].apply(lambda x: f"{round(x):,}" if pd.notna(x) else "—")
-if "delta_pct" in g.columns:
-    g["delta_pct"] = g["delta_pct"].replace([np.inf, -np.inf], np.nan)
-    g["delta_pct"] = g["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
 
-if "conf_eur" in g.columns:
-    g["conf_eur_fmt"] = g["conf_eur"].apply(lambda x: f"{int(round(x)):,}" if pd.notna(x) else "—")
-if "value_badge" in g.columns and "value_emoji" in g.columns:
-    g["value_label"] = g["value_emoji"].fillna("") + " " + g["value_badge"].fillna("")
-
+# Build a separate, formatted copy for tooltip only
+gt = g.copy()
+if "pred_price" in gt.columns:
+    gt["pred_price"] = gt["pred_price"].apply(lambda x: f"{round(x):,}" if pd.notna(x) else "—")
+if "delta_pct" in gt.columns:
+    gt["delta_pct"] = pd.to_numeric(gt["delta_pct"], errors="coerce")
+    gt["delta_pct"] = gt["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
+if "conf_eur" in gt.columns:
+    gt["conf_eur_fmt"] = gt["conf_eur"].apply(lambda x: f"{int(round(x)):,}" if pd.notna(x) else "—")
+if "value_badge" in gt.columns and "value_emoji" in gt.columns:
+    gt["value_label"] = gt["value_emoji"].fillna("") + " " + gt["value_badge"].fillna("")
 
 DUBLIN_LAT, DUBLIN_LON, DUBLIN_ZOOM = 53.3498, -6.2603, 11.0
 view = pdk.ViewState(latitude=DUBLIN_LAT, longitude=DUBLIN_LON, zoom=DUBLIN_ZOOM)
 
-if len(g) == 0:
+if len(gt) == 0:
     st.info("No mappable rows after filters. Showing Dublin.")
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view))
 else:
     layer = pdk.Layer(
         "ScatterplotLayer",
-        data=g,
+        data=gt,
         get_position='[lon, lat]',
         get_radius=50,
-        get_fill_color='color' if "color" in g.columns else [0, 122, 255],
+        get_fill_color='color' if "color" in gt.columns else [0, 122, 255],
         pickable=True,
         auto_highlight=True,
     )
 
-    # ✅ Prepare tooltip fields (keep this INSIDE the else block, same level as layer)
-    if "pred_price" in f.columns:
-        # round to nearest euro
-        f["pred_price"] = f["pred_price"].apply(lambda x: f"{round(x):,}" if pd.notna(x) else "—")
-    if "delta_pct" in f.columns:
-        # replace inf, then round to 2 decimal places and show +/-
-        f["delta_pct"] = f["delta_pct"].replace([np.inf, -np.inf], np.nan)
-        f["delta_pct"] = f["delta_pct"].apply(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
-
-    # 🆕 build HTML <img> snippet from image_url for tooltip
-    #def _mk_img_tag(u):
-        #if isinstance(u, str) and u.startswith("http"):
-            #return ("<img src='" + u + "' width='220' "
-                    #"style='border-radius:6px;max-height:150px;object-fit:cover;'/>")
-        #return ""
-
-    #g["image_tag"] = g.get("image_url", "").apply(_mk_img_tag)
-
-    # 🆕 updated tooltip HTML with photo at the bottom
     tooltip = {
         "html": """
             <div style='font-size:12px'>
@@ -650,38 +532,18 @@ else:
                 &nbsp;(<b>{delta_pct}</b>%)
               </span><br/>
               <span><b>Value:</b> {value_label}</span>
-              #<div style='margin-top:8px;'>{image_tag}</div>
             </div>
         """,
         "style": {"backgroundColor": "#111", "color": "#fff"}
     }
 
-
-
     st.pydeck_chart(pdk.Deck(map_style=None, initial_view_state=view, layers=[layer], tooltip=tooltip))
-
-    st.markdown(
-        """
-        <div style='display:flex; justify-content:flex-end; margin-top:-10px;'>
-          <div style='background: rgba(255,255,255,0.95); padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:12px;'>
-            <div style='font-weight:600; margin-bottom:4px;'>Price bands</div>
-            <div><span style='display:inline-block;width:12px;height:12px;background:#8B4513;border:1px solid #999;margin-right:6px;'></span>≤ €1,499</div>
-            <div><span style='display:inline-block;width:12px;height:12px;background:#00ff00;border:1px solid #999;margin-right:6px;'></span>€1,500–2,000</div>
-            <div><span style='display:inline-block;width:12px;height:12px;background:#ff0000;border:1px solid #999;margin-right:6px;'></span>€2,001–2,500</div>
-            <div><span style='display:inline-block;width:12px;height:12px;background:#0000ff;border:1px solid #999;margin-right:6px;'></span>€2,501–3,000</div>
-            <div><span style='display:inline-block;width:12px;height:12px;background:#800080;border:1px solid #999;margin-right:6px;'></span>€3,001–4,000</div>
-            <div><span style='display:inline-block;width:12px;height:12px;background:#000000;border:1px solid #999;margin-right:6px;'></span>€4,001+</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
 st.divider()
 
-# ------------------------------
+# ==============================
 # Charts
-# ------------------------------
+# ==============================
 chart_cols = st.columns(2)
 
 with chart_cols[0]:
@@ -707,18 +569,48 @@ with chart_cols[1]:
 
 st.divider()
 
-# ------------------------------
+# ==============================
+# Explainability: Feature importances
+# ==============================
+st.subheader("What drives price (model view)")
+imp_path = "feature_importances.csv"  # two cols: feature,importance
+try:
+    imps = pd.read_csv(imp_path)
+    imps = imps.rename(columns={imps.columns[0]: "feature", imps.columns[1]: "importance"})
+    imps = imps.sort_values("importance", ascending=True)
+
+    n = len(imps)
+    h = int(min(max(26 * n, 260), 600))
+
+    chart = (
+        alt.Chart(imps)
+        .mark_bar()
+        .encode(
+            x=alt.X("importance:Q", title="Importance"),
+            y=alt.Y("feature:N", sort="-x", title="Feature", axis=alt.Axis(labelLimit=320, labelPadding=6)),
+            tooltip=["feature", alt.Tooltip("importance:Q", format=".4f")]
+        )
+        .properties(height=h)
+    )
+    st.altair_chart(chart, use_container_width=True)
+    st.caption(f"Random Forest feature importances (all {n} features).")
+except Exception:
+    st.caption("Feature importances file not found yet.")
+
+st.divider()
+
+# ==============================
 # Matching listings (richer + selectable, no images)
-# ------------------------------
-# Start from your core set
+# ==============================
+# Base columns
 show_cols = [c for c in PRIMARY_COLS if c in f.columns]
 
-# Add common value/confidence fields if present
+# Common value/confidence fields
 for extra in ["value_emoji", "value_badge", "pred_price", "Fairness_Delta", "delta_pct", "conf_eur", "conf_pct"]:
     if extra in f.columns and extra not in show_cols:
         show_cols.append(extra)
 
-# Offer extra technical/context columns (only those that exist)
+# Optional extras (only include if present)
 OPTIONAL_COLS = [
     "price_per_bedroom", "effective_monthly_cost",
     "distance_to_city_centre_km", "min_transit_km", "within_500m_transit",
@@ -729,7 +621,6 @@ OPTIONAL_COLS = [
 ]
 optional_cols = [c for c in OPTIONAL_COLS if c in f.columns and c not in show_cols]
 
-# Nice labels + column configs
 labels = {
     "URL": "Daft Listing",
     "Price (€)": "Price (€)",
@@ -760,7 +651,7 @@ labels = {
 }
 
 col_cfg = {}
-if "URL" in show_cols or "URL" in f.columns:
+if ("URL" in show_cols) or ("URL" in f.columns):
     col_cfg["URL"] = st.column_config.LinkColumn(label=labels["URL"], display_text="Open")
 if "Price (€)" in show_cols:
     col_cfg["Price (€)"] = st.column_config.NumberColumn(label=labels["Price (€)"], format="%.0f")
@@ -801,7 +692,6 @@ if "value_badge" in f.columns:
 if "value_emoji" in f.columns:
     col_cfg["value_emoji"] = st.column_config.TextColumn(label=labels["value_emoji"])
 
-# Column picker so you can include more info
 with st.expander("Columns to show", expanded=False):
     selected_extras = st.multiselect(
         "Extra columns",
@@ -821,10 +711,10 @@ for c in selected_extras:
 if len(f):
     st.subheader("Matching listings")
 
-    # Key column: prefer URL if it exists anywhere (in either f or just in show_cols)
+    # Key column: prefer URL if present anywhere
     key_col = "URL" if (("URL" in f.columns) or ("URL" in show_cols)) else "Address"
 
-    # Sort: best value first
+    # Sort: best value first (underpriced → fair → overpriced)
     if "value_code" in f.columns and "delta_pct" in f.columns:
         delta_num = pd.to_numeric(f["delta_pct"], errors="coerce")
         f = (
@@ -838,7 +728,6 @@ if len(f):
 
     display = f[show_cols].copy().reset_index(drop=True)
 
-    # Favourites persistence
     if "favs" not in st.session_state:
         st.session_state["favs"] = set()
     display["Favourite"] = display[key_col].apply(lambda x: x in st.session_state["favs"])
@@ -855,7 +744,6 @@ if len(f):
 
     st.session_state["favs"] = set(edited.loc[edited["Favourite"] == True, key_col].tolist())
 
-    # Actions
     if st.button("Show details for selected (first ⭐)"):
         sel_rows = edited.loc[edited["Favourite"] == True]
         if len(sel_rows):
@@ -869,22 +757,20 @@ if len(f):
         else:
             st.caption("No favourites yet — tick ⭐ in the table above.")
 
-    # Download
     csv_bytes = f[show_cols].to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download filtered CSV", data=csv_bytes, file_name="filtered_listings.csv", mime="text/csv")
 else:
     st.warning("No listings match your filters. Try widening your criteria.")
 
-
-# ------------------------------
+# ==============================
 # Details panel & Debug
-# ------------------------------
+# ==============================
 st.markdown("### Quick details")
 st.caption("Tick ⭐ on a row and click the button above to show details here.")
 
 sel_key = st.session_state.get("selected_key")
 if sel_key:
-    key_col = "URL" if "URL" in f.columns else "Address"
+    key_col = "URL" if (("URL" in f.columns) or ("URL" in show_cols)) else "Address"
     if key_col in f.columns and sel_key in set(f[key_col]):
         row = f[f[key_col] == sel_key].iloc[0]
         lines = []
@@ -910,6 +796,7 @@ if sel_key:
         st.caption("Selection not in current filter results.")
 
 with st.expander("Debug & Schema"):
+    st.write("Data file:", FULL_FILE, "| md5:", file_digest(FULL_FILE))
     st.write("Columns present:", list(df.columns))
     st.write("Rows (original → filtered):", len(df), "→", len(f))
     st.write("Filter step counts:", debug_counts)
@@ -918,7 +805,6 @@ with st.expander("Debug & Schema"):
         st.write("Bedrooms unique:", sorted([int(x) for x in df["Bedrooms_int"].dropna().unique()]))
     if "Price (€)" in df.columns:
         st.write("Price min/max:", int(df["Price (€)"].min()), int(df["Price (€)"].max()))
-
 
 st.divider()
 st.markdown(
@@ -932,4 +818,3 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
