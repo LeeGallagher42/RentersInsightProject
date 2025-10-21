@@ -830,33 +830,34 @@ if len(f):
             if col_name not in show_cols:
                 show_cols.append(col_name)
 
-    for col_name, label in amenity_cols_present.items():
-    col_cfg[col_name] = st.column_config.NumberColumn(label=label, format="%.2f")
+        for col_name, label in amenity_cols_present.items():
+        col_cfg[col_name] = st.column_config.NumberColumn(label=label, format="%.2f")
 
-# --- Reorder columns: keep all distance fields grouped together ---
-dist_cols = [
-    "nearest_park_km", "nearest_beach_km", "nearest_gym_km",
-    "nearest_supermarket_km", "nearest_bus_stop_km",
-    "nearest_rail_station_km", "nearest_tram_stop_km",
-    # include _y fallbacks if present
-    "nearest_park_km_y", "nearest_beach_km_y", "nearest_gym_km_y",
-    "nearest_supermarket_km_y", "nearest_bus_stop_km_y",
-    "nearest_rail_station_km_y", "nearest_tram_stop_km_y",
-]
+    # --- Reorder columns: keep all distance fields grouped together ---
+    dist_cols = [
+        "nearest_park_km", "nearest_beach_km", "nearest_gym_km",
+        "nearest_supermarket_km", "nearest_bus_stop_km",
+        "nearest_rail_station_km", "nearest_tram_stop_km",
+        # include _y fallbacks if present
+        "nearest_park_km_y", "nearest_beach_km_y", "nearest_gym_km_y",
+        "nearest_supermarket_km_y", "nearest_bus_stop_km_y",
+        "nearest_rail_station_km_y", "nearest_tram_stop_km_y",
+    ]
 
-# Find all amenity distance cols that exist
-amenities_existing = [c for c in dist_cols if c in show_cols]
+    # Find all amenity distance cols that exist
+    amenities_existing = [c for c in dist_cols if c in show_cols]
 
-# Insert them right after "distance_to_city_centre_km" (if it exists)
-if "distance_to_city_centre_km" in show_cols and amenities_existing:
-    anchor_idx = show_cols.index("distance_to_city_centre_km") + 1
-    # Remove only the amenity cols (do NOT remove the anchor)
-    show_cols = [c for c in show_cols if c not in amenities_existing]
-    # Reinsert in tidy order immediately after the anchor
-    for i, c in enumerate(amenities_existing):
-        show_cols.insert(anchor_idx + i, c)
+    # Insert them right after "distance_to_city_centre_km" (if it exists)
+    if "distance_to_city_centre_km" in show_cols and amenities_existing:
+        anchor_idx = show_cols.index("distance_to_city_centre_km") + 1
+        # Remove only the amenity cols (do NOT remove the anchor)
+        show_cols = [c for c in show_cols if c not in amenities_existing]
+        # Reinsert in tidy order immediately after the anchor
+        for i, c in enumerate(amenities_existing):
+            show_cols.insert(anchor_idx + i, c)
 
-key_col = "URL" if "URL" in f.columns else "Address"
+    key_col = "URL" if "URL" in f.columns else "Address"
+
 
 
         # --- Amenity distance columns (beach, gym, etc.) ---
