@@ -742,6 +742,28 @@ try:
 except Exception:
     st.caption("Feature importances file not found yet.")
 
+# Define distance column renaming
+rename_dist_cols = {
+    "nearest_park_km": "Park_Dist",
+    "nearest_beach_km": "Beach_Dist",
+    "nearest_gym_km": "Gym_Dist",
+    "nearest_supermarket_km": "Supermarket_Dist",
+    "nearest_bus_stop_km": "BusStop_Dist",
+    "nearest_rail_station_km": "Train_Dist",
+    "nearest_tram_stop_km": "Luas_Dist",
+    "nearest_garda_km": "Garda_Dist",
+    "nearest_hospital_km": "Hospital_Dist"
+}
+
+# Optional: push distances to the end of the column order
+dist_cols = [col for col in rename_dist_cols if col in f.columns]
+show_cols = [c for c in PRIMARY_COLS if c in f.columns and c not in dist_cols] + dist_cols
+
+# Format renamed distance columns
+for original, renamed in rename_dist_cols.items():
+    if original in f.columns:
+        col_cfg[original] = st.column_config.NumberColumn(label=renamed, format="%.2f")
+
 
 # ------------------------------
 # Table with Link column + Favourites + Saved panel
