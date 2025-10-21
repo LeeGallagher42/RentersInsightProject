@@ -1,5 +1,7 @@
 streamlit>=1.36
 pandas>=2.2
 numpy>=1.26
-pydeck>=0.9
 altair>=5.3
+pydeck>=0.9
+plotly>=5.18
+joblib>=1.3
