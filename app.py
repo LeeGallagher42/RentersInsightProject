@@ -708,128 +708,139 @@ with chart_cols[1]:
 st.divider()
 
 # ------------------------------
-# Explainability: Feature importances (model-level)
+# Matching listings (richer + selectable, no images)
 # ------------------------------
-
-st.subheader("What drives price (model view)")
-imp_path = "feature_importances.csv"  # two cols: feature,importance
-try:
-    imps = pd.read_csv(imp_path)
-    imps = imps.rename(columns={imps.columns[0]: "feature", imps.columns[1]: "importance"})
-    imps = imps.sort_values("importance", ascending=True)  # show ALL features, smallest → largest
-
-    # Dynamic height so labels never get cramped
-    n = len(imps)
-    h = int(min(max(26 * n, 260), 600))  # 26px/row, clamp between 260 and 600
-
-    chart = (
-        alt.Chart(imps)
-        .mark_bar()
-        .encode(
-            x=alt.X("importance:Q", title="Importance"),
-            y=alt.Y(
-                "feature:N",
-                sort="-x",
-                title="Feature",
-                axis=alt.Axis(labelLimit=320, labelPadding=6)
-            ),
-            tooltip=["feature", alt.Tooltip("importance:Q", format=".4f")]
-        )
-        .properties(height=h)
-    )
-    st.altair_chart(chart, use_container_width=True)
-    st.caption(f"Random Forest feature importances (all {n} features).")
-except Exception:
-    st.caption("Feature importances file not found yet.")
-
-
-# ------------------------------
-# Table with Link column + Favourites + Saved panel
-# ------------------------------
+# Start from your core set
 show_cols = [c for c in PRIMARY_COLS if c in f.columns]
-# Add Value & Confidence columns if available
-for extra in ["value_emoji","value_badge","conf_eur"]:
+
+# Add common value/confidence fields if present
+for extra in ["value_emoji", "value_badge", "pred_price", "Fairness_Delta", "delta_pct", "conf_eur", "conf_pct"]:
     if extra in f.columns and extra not in show_cols:
         show_cols.append(extra)
 
+# Offer extra technical/context columns (only those that exist)
+OPTIONAL_COLS = [
+    "price_per_bedroom", "effective_monthly_cost",
+    "distance_to_city_centre_km", "min_transit_km", "within_500m_transit",
+    "nearest_park_km","nearest_beach_km","nearest_gym_km","nearest_supermarket_km",
+    "nearest_bus_stop_km","nearest_rail_station_km","nearest_tram_stop_km",
+    "nearest_garda_km","nearest_hospital_km",
+    "BER_norm","Bedrooms_int","Bathrooms_int_approx"
+]
+optional_cols = [c for c in OPTIONAL_COLS if c in f.columns and c not in show_cols]
 
-# Ensure preview appears first in the table if available
-#if "image_url" in f.columns and "image_url" not in show_cols:
-    #show_cols = ["image_url"] + show_cols
+# Nice labels + column configs
+labels = {
+    "URL": "Daft Listing",
+    "Price (€)": "Price (€)",
+    "pred_price": "Fair rent (€)",
+    "Fairness_Delta": "Δ vs fair (€)",
+    "delta_pct": "Δ vs fair (%)",
+    "conf_eur": "± € (conf)",
+    "conf_pct": "± % (conf)",
+    "price_per_bedroom": "€ per bedroom",
+    "effective_monthly_cost": "Effective € / mo",
+    "distance_to_city_centre_km": "Km to centre",
+    "min_transit_km": "Km to transit",
+    "within_500m_transit": "≤500m transit?",
+    "nearest_park_km": "Park_Dist (km)",
+    "nearest_beach_km": "Beach_Dist (km)",
+    "nearest_gym_km": "Gym_Dist (km)",
+    "nearest_supermarket_km": "Supermarket_Dist (km)",
+    "nearest_bus_stop_km": "BusStop_Dist (km)",
+    "nearest_rail_station_km": "Train_Dist (km)",
+    "nearest_tram_stop_km": "Luas_Dist (km)",
+    "nearest_garda_km": "Garda_Dist (km)",
+    "nearest_hospital_km": "Hospital_Dist (km)",
+    "BER_norm": "BER",
+    "Bedrooms_int": "Bedrooms (int)",
+    "Bathrooms_int_approx": "Bathrooms (≈ rounded)",
+    "value_badge": "Value",
+    "value_emoji": " "
+}
+
+col_cfg = {}
+if "URL" in show_cols or "URL" in f.columns:
+    col_cfg["URL"] = st.column_config.LinkColumn(label=labels["URL"], display_text="Open")
+if "Price (€)" in show_cols:
+    col_cfg["Price (€)"] = st.column_config.NumberColumn(label=labels["Price (€)"], format="%.0f")
+if "pred_price" in show_cols:
+    col_cfg["pred_price"] = st.column_config.NumberColumn(label=labels["pred_price"], format="%.0f")
+if "Fairness_Delta" in show_cols:
+    col_cfg["Fairness_Delta"] = st.column_config.NumberColumn(label=labels["Fairness_Delta"], format="%.0f")
+if "delta_pct" in show_cols:
+    col_cfg["delta_pct"] = st.column_config.NumberColumn(label=labels["delta_pct"], format="%.0f%%")
+if "conf_eur" in show_cols:
+    col_cfg["conf_eur"] = st.column_config.NumberColumn(label=labels["conf_eur"], format="%.0f")
+if "conf_pct" in show_cols:
+    col_cfg["conf_pct"] = st.column_config.NumberColumn(label=labels["conf_pct"], format="%.1f%%")
+if "price_per_bedroom" in f.columns:
+    col_cfg["price_per_bedroom"] = st.column_config.NumberColumn(label=labels["price_per_bedroom"], format="%.0f")
+if "effective_monthly_cost" in f.columns:
+    col_cfg["effective_monthly_cost"] = st.column_config.NumberColumn(label=labels["effective_monthly_cost"], format="%.0f")
+
+for k in [
+    "distance_to_city_centre_km","min_transit_km",
+    "nearest_park_km","nearest_beach_km","nearest_gym_km","nearest_supermarket_km",
+    "nearest_bus_stop_km","nearest_rail_station_km","nearest_tram_stop_km",
+    "nearest_garda_km","nearest_hospital_km"
+]:
+    if k in f.columns:
+        col_cfg[k] = st.column_config.NumberColumn(label=labels.get(k, k), format="%.2f")
+
+if "within_500m_transit" in f.columns:
+    col_cfg["within_500m_transit"] = st.column_config.CheckboxColumn(label=labels["within_500m_transit"])
+if "BER_norm" in f.columns:
+    col_cfg["BER_norm"] = st.column_config.TextColumn(label=labels["BER_norm"])
+if "Bedrooms_int" in f.columns:
+    col_cfg["Bedrooms_int"] = st.column_config.NumberColumn(label=labels["Bedrooms_int"], format="%.0f")
+if "Bathrooms_int_approx" in f.columns:
+    col_cfg["Bathrooms_int_approx"] = st.column_config.NumberColumn(label=labels["Bathrooms_int_approx"], format="%.0f")
+if "value_badge" in f.columns:
+    col_cfg["value_badge"] = st.column_config.TextColumn(label=labels["value_badge"])
+if "value_emoji" in f.columns:
+    col_cfg["value_emoji"] = st.column_config.TextColumn(label=labels["value_emoji"])
+
+# Column picker so you can include more info
+with st.expander("Columns to show", expanded=False):
+    selected_extras = st.multiselect(
+        "Extra columns",
+        options=optional_cols,
+        default=[c for c in ["value_emoji","value_badge","pred_price","Fairness_Delta","delta_pct",
+                             "conf_eur","price_per_bedroom","effective_monthly_cost",
+                             "distance_to_city_centre_km","min_transit_km","within_500m_transit",
+                             "nearest_supermarket_km","nearest_bus_stop_km"]
+                 if c in optional_cols],
+        format_func=lambda c: labels.get(c, c)
+    )
+
+for c in selected_extras:
+    if c not in show_cols:
+        show_cols.append(c)
 
 if len(f):
     st.subheader("Matching listings")
 
-    # ✅ Show distance-to-amenity features in matching listings table
-    rename_dist_cols = {
-        "nearest_park_km": "Park_Dist",
-        "nearest_beach_km": "Beach_Dist",
-        "nearest_gym_km": "Gym_Dist",
-        "nearest_supermarket_km": "Supermarket_Dist",
-        "nearest_bus_stop_km": "BusStop_Dist",
-        "nearest_rail_station_km": "Train_Dist",
-        "nearest_tram_stop_km": "Luas_Dist",
-        "nearest_garda_km": "Garda_Dist",
-        "nearest_hospital_km": "Hospital_Dist"
-    }
+    # Key column: prefer URL if it exists anywhere (in either f or just in show_cols)
+    key_col = "URL" if (("URL" in f.columns) or ("URL" in show_cols)) else "Address"
 
-    for original, renamed in rename_dist_cols.items():
-        if original in f.columns:
-            if original not in show_cols:
-                show_cols.append(original)
-
-
-    col_cfg = {}
-    if "URL" in show_cols:
-        col_cfg["URL"] = st.column_config.LinkColumn(label="Daft Listing", display_text="Open")
-    if "Price (€)" in show_cols:
-        col_cfg["Price (€)"] = st.column_config.NumberColumn(label="Price (€)", format="%.0f")
-    if "effective_monthly_cost" in show_cols:
-        col_cfg["effective_monthly_cost"] = st.column_config.NumberColumn(label="Effective € / mo", format="%.0f")
-    if "price_per_bedroom" in show_cols:
-        col_cfg["price_per_bedroom"] = st.column_config.NumberColumn(label="€ per bedroom", format="%.0f")
-    if "distance_to_city_centre_km" in show_cols:
-        col_cfg["distance_to_city_centre_km"] = st.column_config.NumberColumn(label="Km to centre", format="%.2f")
-    if "min_transit_km" in show_cols:
-        col_cfg["min_transit_km"] = st.column_config.NumberColumn(label="Km to transit", format="%.2f")
-    if "pred_price" in show_cols:
-        col_cfg["pred_price"] = st.column_config.NumberColumn(label="Fair rent (€)", format="%.0f")
-    if "Fairness_Delta" in show_cols:
-        col_cfg["Fairness_Delta"] = st.column_config.NumberColumn(label="Δ vs fair (€)", format="%.0f")
-    if "delta_pct" in show_cols:
-        col_cfg["delta_pct"] = st.column_config.NumberColumn(label="Δ vs fair (%)", format="%.0f%%")
-    if "value_badge" in show_cols:
-        col_cfg["value_badge"] = st.column_config.TextColumn(label="Value")
-    if "value_emoji" in show_cols:
-        col_cfg["value_emoji"] = st.column_config.TextColumn(label=" ")
-    if "conf_eur" in show_cols:
-        col_cfg["conf_eur"] = st.column_config.NumberColumn(label="± € (conf)", format="%.0f")
-
-
-
-    key_col = "URL" if "URL" in f.columns else "Address"
-
-# Default sort: best value first (underpriced ➜ fair ➜ overpriced)
-if "value_code" in f.columns and "delta_pct" in f.columns:
-    sort_map = BADGE_ORDER  # UNDER(0) -> ... -> OVER(4)
-    # Ensure numeric for sorting even if someone formatted delta_pct earlier
-    delta_num = pd.to_numeric(f["delta_pct"], errors="coerce")
-    f = (
-        f.assign(
-            _value_rank = f["value_code"].map(sort_map).astype(float).fillna(99),
-            _delta_abs = delta_num.abs()
+    # Sort: best value first
+    if "value_code" in f.columns and "delta_pct" in f.columns:
+        delta_num = pd.to_numeric(f["delta_pct"], errors="coerce")
+        f = (
+            f.assign(
+                _value_rank=f["value_code"].map(BADGE_ORDER).astype(float).fillna(99),
+                _delta_abs=delta_num.abs()
+            )
+            .sort_values(by=["_value_rank","_delta_abs"], ascending=[True, True])
+            .drop(columns=["_value_rank","_delta_abs"])
         )
-        .sort_values(by=["_value_rank", "_delta_abs"], ascending=[True, True])
-        .drop(columns=["_value_rank", "_delta_abs"])
-    )
-
-
 
     display = f[show_cols].copy().reset_index(drop=True)
 
+    # Favourites persistence
     if "favs" not in st.session_state:
         st.session_state["favs"] = set()
-
     display["Favourite"] = display[key_col].apply(lambda x: x in st.session_state["favs"])
 
     edited = st.data_editor(
@@ -844,6 +855,7 @@ if "value_code" in f.columns and "delta_pct" in f.columns:
 
     st.session_state["favs"] = set(edited.loc[edited["Favourite"] == True, key_col].tolist())
 
+    # Actions
     if st.button("Show details for selected (first ⭐)"):
         sel_rows = edited.loc[edited["Favourite"] == True]
         if len(sel_rows):
@@ -857,10 +869,12 @@ if "value_code" in f.columns and "delta_pct" in f.columns:
         else:
             st.caption("No favourites yet — tick ⭐ in the table above.")
 
+    # Download
     csv_bytes = f[show_cols].to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download filtered CSV", data=csv_bytes, file_name="filtered_listings.csv", mime="text/csv")
 else:
     st.warning("No listings match your filters. Try widening your criteria.")
+
 
 # ------------------------------
 # Details panel & Debug
