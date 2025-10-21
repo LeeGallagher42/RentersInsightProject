@@ -171,6 +171,31 @@ try:
 except Exception as e:
     st.error(f"Couldn't load {FULL_FILE}. Ensure it's in the repo root.\nDetails: {e}")
     st.stop()
+# --- Normalize amenity column names coming in with "_y" suffix ---
+RENAME_MAP = {
+    "nearest_park_km_y": "nearest_park_km",
+    "nearest_beach_km_y": "nearest_beach_km",
+    "nearest_gym_km_y": "nearest_gym_km",
+    "nearest_supermarket_km_y": "nearest_supermarket_km",
+    "nearest_bus_stop_km_y": "nearest_bus_stop_km",
+    "nearest_rail_station_km_y": "nearest_rail_station_km",
+    "nearest_tram_stop_km_y": "nearest_tram_stop_km",
+    # names (optional, if you want to show them later)
+    "nearest_park_name_y": "nearest_park_name",
+    "nearest_beach_name_y": "nearest_beach_name",
+    "nearest_gym_name_y": "nearest_gym_name",
+    "nearest_supermarket_name_y": "nearest_supermarket_name",
+    "nearest_bus_stop_name_y": "nearest_bus_stop_name",
+    "nearest_rail_station_name_y": "nearest_rail_station_name",
+    "nearest_tram_stop_name_y": "nearest_tram_stop_name",
+}
+df = df.rename(columns={k: v for k, v in RENAME_MAP.items() if k in df.columns})
+
+# (Optional) ensure the km columns are numeric in case they weren't coerced earlier
+for c in ["nearest_park_km","nearest_beach_km","nearest_gym_km","nearest_supermarket_km",
+          "nearest_bus_stop_km","nearest_rail_station_km","nearest_tram_stop_km"]:
+    if c in df.columns:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
 
 # Attach pre-fetched image URLs (from your enrich_images.py output)
 IMAGE_FILE = "data/df_master_with_images.csv"
@@ -779,14 +804,59 @@ if len(f):
         col_cfg["Fairness_Delta"] = st.column_config.NumberColumn(label="Δ vs fair (€)", format="%.0f")
     if "delta_pct" in show_cols:
         col_cfg["delta_pct"] = st.column_config.NumberColumn(label="Δ vs fair (%)", format="%.0f%%")
-    #if "image_url" in show_cols:
-        #col_cfg["image_url"] = st.column_config.ImageColumn(label="Preview", width="small")
     if "value_badge" in show_cols:
         col_cfg["value_badge"] = st.column_config.TextColumn(label="Value")
     if "value_emoji" in show_cols:
         col_cfg["value_emoji"] = st.column_config.TextColumn(label=" ")
     if "conf_eur" in show_cols:
         col_cfg["conf_eur"] = st.column_config.NumberColumn(label="± € (conf)", format="%.0f")
+
+    # --- Amenity distance columns (beach, gym, etc.) ---
+    amenity_defs = [
+        ("nearest_park_km",          "nearest_park_km_y",          "Park Dist (km)"),
+        ("nearest_beach_km",         "nearest_beach_km_y",         "Beach Dist (km)"),
+        ("nearest_gym_km",           "nearest_gym_km_y",           "Gym Dist (km)"),
+        ("nearest_supermarket_km",   "nearest_supermarket_km_y",   "Supermarket Dist (km)"),
+        ("nearest_bus_stop_km",      "nearest_bus_stop_km_y",      "Bus Stop Dist (km)"),
+        ("nearest_rail_station_km",  "nearest_rail_station_km_y",  "Train Dist (km)"),
+        ("nearest_tram_stop_km",     "nearest_tram_stop_km_y",     "Luas Dist (km)"),
+    ]
+
+    amenity_cols_present = {}
+    for base, suff, label in amenity_defs:
+        col_name = base if base in f.columns else (suff if suff in f.columns else None)
+        if col_name:
+            amenity_cols_present[col_name] = label
+            if col_name not in show_cols:
+                show_cols.append(col_name)
+
+    for col_name, label in amenity_cols_present.items():
+        col_cfg[col_name] = st.column_config.NumberColumn(label=label, format="%.2f")
+
+    key_col = "URL" if "URL" in f.columns else "Address"
+
+
+        # --- Amenity distance columns (beach, gym, etc.) ---
+    amenity_defs = [
+        ("nearest_park_km",          "nearest_park_km_y",          "Park Dist (km)"),
+        ("nearest_beach_km",         "nearest_beach_km_y",         "Beach Dist (km)"),
+        ("nearest_gym_km",           "nearest_gym_km_y",           "Gym Dist (km)"),
+        ("nearest_supermarket_km",   "nearest_supermarket_km_y",   "Supermarket Dist (km)"),
+        ("nearest_bus_stop_km",      "nearest_bus_stop_km_y",      "Bus Stop Dist (km)"),
+        ("nearest_rail_station_km",  "nearest_rail_station_km_y",  "Train Dist (km)"),
+        ("nearest_tram_stop_km",     "nearest_tram_stop_km_y",     "Luas Dist (km)"),
+    ]
+
+    amenity_cols_present = {}
+    for base, suff, label in amenity_defs:
+        col_name = base if base in f.columns else (suff if suff in f.columns else None)
+        if col_name:
+            amenity_cols_present[col_name] = label
+            if col_name not in show_cols:
+                show_cols.append(col_name)
+
+    for col_name, label in amenity_cols_present.items():
+        col_cfg[col_name] = st.column_config.NumberColumn(label=label, format="%.2f")
 
 
     key_col = "URL" if "URL" in f.columns else "Address"
