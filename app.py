@@ -760,6 +760,25 @@ for extra in ["value_emoji","value_badge","conf_eur"]:
 if len(f):
     st.subheader("Matching listings")
 
+    # ✅ Show distance-to-amenity features in matching listings table
+    rename_dist_cols = {
+        "nearest_park_km": "Park_Dist",
+        "nearest_beach_km": "Beach_Dist",
+        "nearest_gym_km": "Gym_Dist",
+        "nearest_supermarket_km": "Supermarket_Dist",
+        "nearest_bus_stop_km": "BusStop_Dist",
+        "nearest_rail_station_km": "Train_Dist",
+        "nearest_tram_stop_km": "Luas_Dist",
+        "nearest_garda_km": "Garda_Dist",
+        "nearest_hospital_km": "Hospital_Dist"
+    }
+
+    for original, renamed in rename_dist_cols.items():
+        if original in f.columns:
+            if original not in show_cols:
+                show_cols.append(original)
+
+
     col_cfg = {}
     if "URL" in show_cols:
         col_cfg["URL"] = st.column_config.LinkColumn(label="Daft Listing", display_text="Open")
@@ -779,14 +798,13 @@ if len(f):
         col_cfg["Fairness_Delta"] = st.column_config.NumberColumn(label="Δ vs fair (€)", format="%.0f")
     if "delta_pct" in show_cols:
         col_cfg["delta_pct"] = st.column_config.NumberColumn(label="Δ vs fair (%)", format="%.0f%%")
-    #if "image_url" in show_cols:
-        #col_cfg["image_url"] = st.column_config.ImageColumn(label="Preview", width="small")
     if "value_badge" in show_cols:
         col_cfg["value_badge"] = st.column_config.TextColumn(label="Value")
     if "value_emoji" in show_cols:
         col_cfg["value_emoji"] = st.column_config.TextColumn(label=" ")
     if "conf_eur" in show_cols:
         col_cfg["conf_eur"] = st.column_config.NumberColumn(label="± € (conf)", format="%.0f")
+
 
 
     key_col = "URL" if "URL" in f.columns else "Address"
