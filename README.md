@@ -1,55 +1,134 @@
 # Dublin Rental Intelligence App 🏠📊
 
-An interactive data app built to explore fairness in Dublin’s rental market.  
-It helps users find good-value listings by comparing asking rent to estimated sale value and quality-of-life factors.
+A deployed Python/Streamlit data product for exploring value and trade-offs in Dublin rental listings. It combines scraped rental data, feature engineering, geospatial enrichment and transparent scoring in an interactive app.
 
 [🔗 Live app](https://lee-rentals-dashboard.streamlit.app/) • [💻 Source code](https://github.com/LeeGallagher42/RentersInsightProject)
 
 ---
 
-## 🎯 What This App Does
+## Why I built it
 
-- **Scrapes real Dublin rental listings** from Daft.ie
-- **Enriches data** with BER scores, proximity to parks, transit, gyms, supermarkets, etc.
-- **Estimates sale value** using area-level benchmarks (via Property Price Register)
-- **Flags listings** as ✅ Fair, 🔥 Underpriced, or 💰 Overpriced based on a rent-to-value ratio
-- **Lets users filter** by price, BER rating, number of bedrooms, distance to city centre, and more
-- **Displays maps, filters, dashboards and ranking logic** — all in a polished Streamlit interface
+Rental listings are easy to browse but hard to compare. Asking rent alone does not tell a renter whether a property is relatively good value once bedrooms, location, BER, transport and nearby amenities are considered.
+
+The project turns that messy decision into a structured data workflow: collect listings, normalize them, enrich them with external/contextual features, calculate interpretable value indicators and expose the result through filters, maps and dashboards.
 
 ---
 
-## 🧠 How Value Is Judged
+## What the app does
 
-We estimate what a listing *might sell for* based on recent sale data in its area (postcode-level).  
-Then we calculate a **rental yield**, and flag listings using a transparent set of thresholds:
-
-- 🔥 **Underpriced** → rent much lower than estimated value
-- ✅ **Fair** → rent within ±5% of expected
-- 💰 **Overpriced** → rent far above typical value for that area
-
-This isn’t a prediction model yet — but the value flagging logic is honest, transparent, and highlights anomalies that renters can act on.
+- Scrapes Dublin rental listings through the project scraper notebook.
+- Enriches listings with BER and proximity features for parks, beaches, gyms, supermarkets and public transport.
+- Uses engineered fields such as price per bedroom, effective monthly cost, distance to the city centre and minimum transit distance.
+- Includes predicted-price / fairness fields and transparent value badges from **Very underpriced** through **Very overpriced**.
+- Lets users filter by price, bedrooms, bathrooms, BER, property type, distance and other practical criteria.
+- Displays interactive map layers, KPIs, ranking logic and listing-level detail in Streamlit.
 
 ---
 
-## ⚙️ Tools & Stack
+## Architecture
 
-- **Python**: pandas, numpy, altair, pydeck
-- **Streamlit**: full front-end, user filtering, KPIs, map layers, and download features
-- **Geospatial enrichment**: location-based features like proximity to gyms, supermarkets, parks
-- **Custom feature engineering**: `price_per_bedroom`, `effective_monthly_cost`, energy estimate proxies, transit access flags, etc.
-- **Clean design**: mobile-usable, intuitive, and ready to demo
+```text
+Rental listing collection
+        │
+        ▼
+Raw / scraped listing data
+        │
+        ▼
+Cleaning + type normalisation
+        │
+        ├── BER normalisation
+        ├── coordinate validation
+        └── numeric coercion
+        │
+        ▼
+Feature engineering + enrichment
+        │
+        ├── amenity / transit distance
+        ├── city-centre distance
+        ├── price-per-bedroom
+        ├── effective monthly cost
+        └── predicted-value / fairness fields
+        │
+        ▼
+Curated CSV snapshot
+        │
+        ▼
+Streamlit application
+        ├── filters
+        ├── KPIs
+        ├── charts
+        ├── map layers
+        └── listing-level comparisons
+```
+
+This separation matters: the app is not responsible for inventing business logic at runtime. The data is prepared and validated upstream, while the UI focuses on exploration and explanation.
 
 ---
 
-## 👨‍💻 Built by
+## Reliability / defensive data handling
 
-**Lee Gallagher** — data analyst with a finance + computer science background.  
+The application contains explicit defensive handling rather than assuming the dataset is clean:
 
-[🔗 LinkedIn](https://www.linkedin.com/in/lee-gallagher-7ba1721a3/)  
-[💻 GitHub](https://github.com/LeeGallagher42)
+- Coordinates are coerced to numeric values and rejected when outside valid latitude/longitude ranges.
+- Numeric fields are normalised with `errors="coerce"` so malformed values become observable missing data rather than silently corrupting calculations.
+- BER values are normalised into an ordered controlled set with an `Unknown` fallback.
+- Amenity columns are normalised when enrichment produces suffixed field names.
+- External image data is attached through a normalised URL key, with a many-to-one merge validation.
+- Data loading is cached and app startup stops with an explicit error if the required dataset cannot be loaded.
+- Value categories are implemented through explicit thresholds rather than an opaque LLM decision.
+
+Those choices are intentionally boring. They are also the same kind of choices that make automation and data products maintainable in production: validate inputs, make failure visible, keep deterministic rules deterministic and document the hand-off between stages.
 
 ---
 
-## Link to app
+## Tools & stack
 
-https://lee-rentals-dashboard.streamlit.app/
+- **Python** — pandas, numpy and application logic
+- **Streamlit** — interactive UI, filtering and deployment
+- **PyDeck** — geospatial map layers
+- **Altair** — charts / visual exploration
+- **Jupyter notebooks** — scraper and feature-engineering stages
+- **CSV snapshots** — simple, inspectable hand-off between data preparation and the app
+- **Git / GitHub** — source control and public delivery
+
+Repository structure includes:
+
+- `app.py` — deployed Streamlit application
+- `Scripts/Scraper.ipynb` — listing collection workflow
+- `Scripts/feature_engineering.ipynb` — feature preparation / enrichment
+- `cleaned_data_enriched_with_fairness.csv` — application-ready data
+- `feature_importances.csv` and `predictions_snapshot.csv` — modelling artefacts
+
+---
+
+## What this project demonstrates
+
+This is useful as more than a dashboard demo. It demonstrates how I approach ambiguous business/data problems:
+
+1. **Turn an unclear question into explicit decision variables.**
+2. **Separate collection, transformation and presentation.**
+3. **Engineer features that map to the real decision rather than simply displaying raw data.**
+4. **Use deterministic rules where transparency matters.**
+5. **Handle dirty inputs and edge cases explicitly.**
+6. **Ship the result as something another person can actually use.**
+
+That same workflow — process mapping → data contract → transformation / automation → controls → usable interface — is the foundation I use for AI and business-automation projects as well.
+
+---
+
+## Limitations
+
+- Rental-market data changes quickly, so any static snapshot becomes stale.
+- Fairness/value indicators are decision-support signals, not financial advice or guaranteed market valuations.
+- Amenity proximity does not capture every qualitative factor a renter may care about.
+- Model-derived fields should be interpreted alongside the underlying listing features, not treated as ground truth.
+
+Being explicit about those limitations is part of the project: a useful analytical tool should communicate what it knows and what it does not.
+
+---
+
+## Built by
+
+**Lee Gallagher** — automation-focused business analyst/developer with a finance and computer-science background.
+
+[LinkedIn](https://www.linkedin.com/in/lee-gallagher-7ba1721a3/) • [GitHub](https://github.com/LeeGallagher42)
