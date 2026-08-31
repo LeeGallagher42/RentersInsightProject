@@ -1,0 +1,9 @@
+{
+  "name": "INKSIDE — Art & Comics",
+  "short_name": "INKSIDE",
+  "description": "Creator-first discovery and publishing for original art and comics.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f2e8",
+  "theme_color": "#11110f"
+}
