@@ -1,0 +1,8 @@
+{
+  "name": "talquora-proof-001",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Synthetic automation reliability proof: broken workflow to production-hardened patterns.",
+  "scripts": { "test": "node test.js" },
+  "engines": { "node": ">=18" }
+}
