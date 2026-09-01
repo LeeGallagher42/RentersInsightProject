@@ -16,25 +16,31 @@
 - Keyboard card activation, Escape-to-close modals and responsive mobile breakpoints.
 - `vercel.json` adds baseline security headers.
 
-## Added in the latest product run
-- New `trust.html` public-facing Trust & Safety experience explaining original-work requirements, mature-content labeling, report review, moderation outcomes and creator appeals.
-- New `creator-guide.html` onboarding surface with a live 90/10 earnings calculator, draft-to-publish guidance and a creator publishing checklist.
-- Trust and creator-guide pages emit analytics-ready view events using the same `inkside:analytics` event pattern.
-- Added clean Vercel routes for `/trust` and `/creator-guide`.
-- Added `manifest.webmanifest` and `robots.txt` foundations for a public installable/indexable web product.
-- Strengthened deployment headers with `Cross-Origin-Opener-Policy: same-origin` while preserving existing security headers.
+## Public product surfaces now present
+- `trust.html`: Trust & Safety experience covering original-work requirements, mature-content labeling, reports, moderation outcomes and creator appeals.
+- `creator-guide.html`: creator onboarding with live 90/10 calculator and publish checklist.
+- `library.html`: browser-persistent personal library that reads the same liked-work, followed-creator and analytics state as the main app; includes saved work search, remove/clear actions, following view and recent local activity.
+- Clean Vercel routes for `/trust`, `/creator-guide` and `/library`.
+- `manifest.webmanifest` and `robots.txt` foundations for a public installable/indexable web product.
 
-## Verification on 2026-08-31
-- Existing main app JavaScript was previously parsed successfully with Node `new Function` and core product strings/events smoke-tested.
-- New trust and creator-guide pages are static, dependency-free HTML/CSS/JS with no external assets.
-- Vercel configuration remains valid JSON and now includes clean routes for both new public-facing pages.
+## Verification / persistence
+- Main-app JavaScript has been parsed successfully with Node `new Function` in prior runs and core product strings/events smoke-tested.
+- Supporting pages are dependency-free HTML/CSS/JS and share INKSIDE browser storage keys where relevant.
+- Deployment configuration is valid JSON and includes baseline security headers plus clean public routes.
 - All changes are preserved on isolated branch `creator-platform-build`; the repository's main product branch is untouched.
 
+## Latest product increment — 2026-09-01
+- Added a real Library surface instead of another planning-only pass.
+- Library exposes persistent saved works, followed creators and recent analytics activity using the main app's existing `inkside_likes`, `inkside_follows`, `inkside_published`, and `inkside_events` state.
+- Added search, per-work removal, clear-saved control and responsive card layouts.
+- Added analytics-ready `page_view`, `library_view`, `library_remove`, and `library_clear` events through the existing `inkside:analytics` pattern.
+- Added `/library` rewrite to Vercel configuration.
+
 ## Next build priorities before launch
-1. Link Trust & Safety and Creator Guide directly from the main app navigation/footer.
-2. Add lightweight collection/bookmark surface and stronger discovery sorting.
-3. Add richer OpenGraph/social metadata to the main app and creator/work views.
-4. Verify main app + `/trust` + `/creator-guide` interactively in a deployed browser preview.
+1. Link Trust & Safety, Creator Guide and Library directly from the main app navigation/footer.
+2. Add richer discovery sorting and explicit saved/bookmark control in addition to likes.
+3. Add richer OpenGraph/social metadata to the main app and public surfaces.
+4. Verify main app + `/trust` + `/creator-guide` + `/library` interactively in a deployed browser preview.
 5. At/after the launch deadline, deploy the best working version and verify the public URL.
 
 ## Persistence
