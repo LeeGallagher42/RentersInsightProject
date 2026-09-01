@@ -1,0 +1,51 @@
+name: Promote creator platform candidate
+
+on:
+  push:
+    branches: [creator-platform]
+    paths:
+      - 'creator-platform/run-11-candidate.html.gz.b64'
+      - '.github/workflows/promote-creator-platform.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: creator-platform
+      - name: Decode verified run 11 candidate
+        run: |
+          base64 -d creator-platform/run-11-candidate.html.gz.b64 | gunzip > creator-platform/index.html
+      - name: Validate product surface
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('creator-platform/index.html').read_text()
+          required = ['Creator Studio','90%','Report','Comic','analytics','community','mature']
+          missing = [x for x in required if x.lower() not in html.lower()]
+          if missing:
+              raise SystemExit('Missing required product markers: ' + ', '.join(missing))
+          print('Product markers PASS')
+          PY
+          python -m http.server 4173 --directory creator-platform >/tmp/inkside-http.log 2>&1 &
+          pid=$!
+          sleep 2
+          curl --fail --silent http://127.0.0.1:4173/ >/tmp/inkside-home.html
+          kill $pid
+          test -s /tmp/inkside-home.html
+          echo 'HTTP smoke PASS'
+      - name: Promote canonical build
+        run: |
+          if git diff --quiet -- creator-platform/index.html; then
+            echo 'Canonical build already matches candidate.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add creator-platform/index.html
+          git commit -m 'Promote verified INKSIDE run 11 build'
+          git push origin HEAD:creator-platform
