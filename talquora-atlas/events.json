@@ -1,0 +1,45 @@
+[
+  {
+    "date": "2026-08-26",
+    "type": "milestone",
+    "title": "Talquora registered",
+    "status": "complete",
+    "summary": "Talquora became a registered Irish business name."
+  },
+  {
+    "date": "2026-08-27",
+    "type": "system",
+    "title": "Commercial OS v2 established",
+    "status": "complete",
+    "summary": "Talquora moved to shared commercial state, deduplication, outcome tracking and autonomous acquisition cycles."
+  },
+  {
+    "date": "2026-08-30",
+    "type": "proof",
+    "title": "Proof 001 — Broken Workflow → Production-Hardened",
+    "status": "complete",
+    "evidence": "../talquora-proof-001/README.md",
+    "summary": "Synthetic automation reliability proof demonstrating idempotency, retries, safe failure, logging, recovery, alerts and reproducible tests."
+  },
+  {
+    "date": "2026-09-01",
+    "type": "commercial",
+    "title": "Seven valid vendor proposals delivered",
+    "status": "complete",
+    "summary": "Talquora established a verified outbound baseline of seven delivered customer/vendor proposals."
+  },
+  {
+    "date": "2026-09-01",
+    "type": "pivot",
+    "title": "Generic agency-partner lane retired",
+    "status": "complete",
+    "summary": "The primary acquisition lane changed after seven delivered proposals produced zero genuine buyer conversations."
+  },
+  {
+    "date": "2026-09-01",
+    "type": "experiment",
+    "title": "Explicit buyer-intent acquisition lane",
+    "status": "active",
+    "summary": "Talquora shifted toward first-party RFP, RFQ, procurement, project and subcontract requests with current purchase intent."
+  }
+]
