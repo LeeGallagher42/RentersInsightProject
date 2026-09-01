@@ -19,7 +19,7 @@ Implemented before run 10:
 - Keyboard card activation, visible focus states, Escape-to-close modal behavior and responsive breakpoints.
 - Demo content is explicitly rights-safe/original and no third-party art assets are embedded.
 
-Run 10 product upgrade preserved as a compressed candidate artifact at `creator-platform/run-10-candidate.html.gz.b64` (gzip-compressed HTML encoded as base64). Decode with `base64 -d | gunzip` to recover the complete self-contained HTML candidate.
+Run 10 product upgrade preserved as a compressed candidate artifact at `creator-platform/run-10-candidate.html.gz.b64` (gzip-compressed HTML encoded as base64).
 
 Run 10 adds and verifies:
 - `prefers-reduced-motion` handling for accessibility.
@@ -32,19 +32,32 @@ Run 10 adds and verifies:
 - 90/10 split maintained in discovery, work detail, publishing and checkout-intent surfaces.
 - Seeded demo artwork remains CSS-generated/original with no third-party art assets.
 
-Verification performed on the run-10 candidate:
-- JavaScript parse check: PASS.
-- Local HTTP smoke test: 200.
-- Analytics event schema smoke: PASS.
-- 90/10 positioning smoke: PASS.
-- Reduced-motion/profile/page-ordering/moderation feature presence checks: PASS.
+Run 11 candidate is preserved at `creator-platform/run-11-candidate.html.gz.b64`.
 
-Run 10 preservation commit: `34ede6369233ece6774017122d7960f402b02401`.
+Run 11 materially upgrades the product with:
+- A redesigned creator-first public landing page and responsive 4/2/1-column discovery layout.
+- Eight seeded original CSS-generated artworks/comics with clearer title, creator, pricing, format and mature labels.
+- Search plus format, mature-content and sort controls; mature work is hidden by default.
+- Rich work detail with comic pagination, creator attribution, content notes, likes, saves, sharing, reporting and checkout-intent events.
+- Creator directory and profile modals with persistent follow state and creator catalogues.
+- Editable Creator Studio profile plus published/draft/moderation KPIs and catalogue unpublish controls.
+- Publish flow with local draft autosave, rights and community-rules confirmations, mature label, tags, content notes and comic page count controls.
+- 90/10 revenue split surfaced on the home page, publish preview and purchase-intent view with concrete euro calculations.
+- Moderation queue states expanded to reviewed, actioned and dismissed.
+- User-entered strings escaped before rendering and analytics events versioned with timestamps.
+- Mobile bottom navigation, reduced-motion support, keyboard-openable work cards, modal focus trapping and focus restoration.
+
+Run 11 verification:
+- JavaScript parse check: PASS.
+- Local HTTP smoke test: HTTP 200.
+- Feature smoke checks for Creator Studio, mature-content filtering, publish analytics, comic analytics and 90/10 positioning: PASS.
+
+Run 11 preservation commit: `68f9e26abb475467b534f4d6b1effcd979c8383d`.
 
 Deployment rule: before 2026-09-01 21:00 Europe/Dublin keep improving and verifying. On/after that deadline deploy the best working version and verify the public URL.
 
 Next highest-value work:
-1. Promote the run-10 candidate into the canonical `creator-platform/index.html` after one browser-level interaction pass.
-2. Add mature-content labels/filtering and stronger moderation states (dismiss/actioned) if time allows.
+1. Promote the best verified candidate into canonical `creator-platform/index.html` after an interaction-level pass.
+2. Add explicit terms/community-guidelines/help surfaces and basic empty/error/success states where still thin.
 3. Add real upload storage/payment/auth only after the public static MVP is deployed and usable.
 4. Verify Vercel project/deployment path and public hosting at the deadline.
